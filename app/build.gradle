@@ -4,12 +4,12 @@ plugins {
 }
 
 android {
-    namespace "com.ah.mad.dola.app"
+    namespace "com.ah.mad.dola"
     compileSdk = 34
     buildToolsVersion = "34.0.0"
 
     defaultConfig {
-        applicationId "com.ah.mad.dola.app"
+        applicationId "com.ah.mad.dola"
         minSdk 21
         targetSdk 31
         versionCode 1
