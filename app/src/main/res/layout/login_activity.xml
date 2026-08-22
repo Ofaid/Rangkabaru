@@ -21,7 +21,6 @@
         android:layout_height="wrap_content"
         android:hint="Isi nama panggilan Anda"
         android:textColor="#FFFFFF"
-        android:hintTextColor="#AAAAAA"
         android:inputType="textPersonName"
         android:padding="15dp"
         android:background="#333333"
