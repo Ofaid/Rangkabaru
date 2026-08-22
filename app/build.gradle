@@ -1,5 +1,6 @@
 plugins {
-    id 'com.android.application'
+    // 📄 PERBAIKAN: Tambahkan versi plugin secara eksplisit di sini
+    id 'com.android.application' version '8.2.2'
 }
 
 android {
