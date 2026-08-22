@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 <application android:allowBackup="true" android:label="Aplikasi Dola" 
   android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
-<activity android:name="com.ah.mad.dola.MainActivity" 
+<activity android:name="com.ah.mad.dola.LoginActivity" 
   android:exported="true">
 <intent-filter>
 <action android:name="android.intent.action.MAIN" />
