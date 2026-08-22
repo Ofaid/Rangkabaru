@@ -1,0 +1,43 @@
+package com.ah.mad.dola;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.os.Bundle;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Toast;
+
+public class LoginActivity extends Activity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_login);
+
+        final EditText inputNama = findViewById(R.id.input_nama);
+        Button tombolLanjut = findViewById(R.id.tombol_lanjut);
+
+        tombolLanjut.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String nama = inputNama.getText().toString().trim();
+
+                if (nama.isEmpty()) {
+                    Toast.makeText(LoginActivity.this, "Silakan isi nama dulu", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                SharedPreferences pengaturan = getSharedPreferences("Pengaturan", MODE_PRIVATE);
+                pengaturan.edit().putString("nama_pengguna", nama).apply();
+
+                Toast.makeText(LoginActivity.this, "Selamat datang, " + nama + "!", Toast.LENGTH_SHORT).show();
+
+                Intent pindah = new Intent(LoginActivity.this, ServerList.class);
+                startActivity(pindah);
+                finish();
+            }
+        });
+    }
+}
