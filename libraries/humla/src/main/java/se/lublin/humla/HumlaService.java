@@ -185,6 +185,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         }
     };
 
+    // MODIFIKASI MINIMAL: MENAMBAHKAN CALLBACK AUDIO LEVEL KE LISTENER ASLI
     private final AudioHandler.AudioEncodeListener mAudioInputListener =
             new AudioHandler.AudioEncodeListener() {
                 @Override
@@ -200,14 +201,9 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
                         @Override
                         public void run() {
                             try {
-                                // If the server session is inactive, ignore this message.
-                                // It's likely that this is leftover from a terminated connection.
-                                if (!isSynchronized())
-                                    return;
-
-                                if (mModelHandler == null || mConnection == null) {
-                                    return;
-                                }
+                                if (!isSynchronized()) return;
+                                if (mModelHandler == null || mConnection == null) return;
+                                
                                 final User currentUser = mModelHandler.getUser(mConnection.getSession());
                                 if (currentUser == null) return;
 
@@ -219,8 +215,21 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
                         }
                     });
                 }
+
+                // TAMBAHAN BARU: Callback untuk Visualizer Input Level
+                @Override
+                public void onAudioInputLevelUpdated(final float level) {
+                    mHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            // Panggil callback di observer Fragment
+                            mCallbacks.onAudioInputLevelUpdated(level);
+                        }
+                    });
+                }
             };
 
+    // MODIFIKASI MINIMAL: MENAMBAHKAN CALLBACK AUDIO LEVEL OUTPUT
     private AudioOutput.AudioOutputListener mAudioOutputListener = new AudioOutput.AudioOutputListener() {
         @Override
         public void onUserTalkStateUpdated(final User user) {
@@ -233,6 +242,17 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
                 return mModelHandler.getUser(session);
             }
             return null;
+        }
+
+        // TAMBAHAN BARU: Callback untuk Visualizer Output Level
+        @Override
+        public void onAudioOutputLevelUpdated(final float level) {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mCallbacks.onAudioOutputLevelUpdated(level);
+                }
+            });
         }
     };
 
@@ -250,7 +270,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
             if (ACTION_CONNECT.equals(intent.getAction())) {
                 if (extras == null || !extras.containsKey(EXTRAS_SERVER)) {
-                    // Ensure that we have been provided all required attributes.
                     throw new RuntimeException(ACTION_CONNECT + " requires a server provided in extras.");
                 }
                 connect();
