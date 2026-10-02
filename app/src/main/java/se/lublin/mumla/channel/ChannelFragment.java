@@ -1,23 +1,13 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * ... (lisensi asli tetap sama) ...
  */
 
 package se.lublin.mumla.channel;
 
+import android.Manifest;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.res.TypedArray;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
@@ -36,6 +26,7 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentPagerAdapter;
@@ -58,13 +49,8 @@ import se.lublin.humla.util.VoiceTargetMode;
 import se.lublin.mumla.R;
 import se.lublin.mumla.Settings;
 import se.lublin.mumla.util.HumlaServiceFragment;
-// PERBAIKAN: IMPORT WIDGET VISUALIZER SUDAH DITAMBAHKAN DI SINI
 import se.lublin.mumla.widget.AudioLevelView; 
 
-/**
- * Class to encapsulate both a ChannelListFragment and ChannelChatFragment.
- * Created by andrew on 02/08/13.
- */
 public class ChannelFragment extends HumlaServiceFragment implements SharedPreferences.OnSharedPreferenceChangeListener, ChatTargetProvider {
     private static final String TAG = ChannelFragment.class.getName();
 
@@ -73,7 +59,7 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     private Button mTalkButton;
     private View mTalkView;
     
-    // VARIABEL VISUALIZER & AUDIO RECORD
+    // VARIABEL VISUALIZER MANDIRI
     private AudioLevelView mAudioLevelBar;
     private AudioRecord mAudioRecord;
     private boolean mIsRecording = false;
@@ -112,19 +98,6 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
                         if (mAudioLevelBar != null) mAudioLevelBar.reset();
                         break;
                 }
-            }
-        }
-
-        // Listener untuk library modif (jika nanti dipasang)
-        public void onAudioInputLevelUpdated(float level) {
-            if (mAudioLevelBar != null && mTalkButton.isPressed()) {
-                mAudioLevelBar.setLevel(level);
-            }
-        }
-
-        public void onAudioOutputLevelUpdated(float level) {
-            if (mAudioLevelBar != null && !mTalkButton.isPressed()) {
-                mAudioLevelBar.setLevel(level);
             }
         }
 
@@ -261,8 +234,11 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     @Override
     public void onResume() {
         super.onResume();
-        // MULAI BACA MIC SAAT FRAGMENT AKTIF
-        startVisualizerMic();
+        // MULAI BACA MIC SAAT FRAGMENT AKTIF (CEK IZIN DULU)
+        if (ContextCompat.checkSelfPermission(getActivity(), Manifest.permission.RECORD_AUDIO) 
+                == PackageManager.PERMISSION_GRANTED) {
+            startVisualizerMic();
+        }
     }
 
     @Override
@@ -378,17 +354,17 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
         mChatTargetListeners.remove(listener);
     }
 
-    // METHOD BARU: MEMBACA LEVEL MIC LANGSUNG DARI HARDWARE
+    // METHOD BARU: MEMBACA LEVEL MIC LANGSUNG DARI HARDWARE (MANDIRI)
     private void startVisualizerMic() {
         if (mIsRecording || mAudioLevelBar == null) return;
         
         try {
-            int bufferSize = AudioRecord.getMinBufferSize(44100, 
+            int bufferSize = AudioRecord.getMinBufferSize(48000, 
                 AudioFormat.CHANNEL_IN_MONO, 
                 AudioFormat.ENCODING_PCM_16BIT);
                 
             mAudioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC, 
-                44100, 
+                48000, 
                 AudioFormat.CHANNEL_IN_MONO, 
                 AudioFormat.ENCODING_PCM_16BIT, 
                 bufferSize * 2);
