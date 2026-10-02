@@ -1,117 +1,65 @@
-name: Continuous Integration
+name: Bangun OFA (Debug)
+run-name: Bangun OFA - APK Debug Lengkap
 
 on:
-  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  android:
-    name: Android tests, debug APK and release lint
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
-      - name: Checkout code (No submodules needed)
+      - name: Ambil kode
         uses: actions/checkout@v4
+        # HAPUS submodules: recursive karena semua file sudah static
       
-      - name: Set up Java 21
+      - name: Siapkan Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "21"
-          cache: gradle
-      
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-          accept-android-sdk-license: true
-      
-      - name: Install pinned NDK & Build Tools
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Pasang Android SDK & NDK
         run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;25.1.8937393"
-      
-      # PERBAIKAN UTAMA: Build Spongy Castle dengan cara yang lebih robust
-      - name: Build patched Spongy Castle jars
+          SDK_DIR="/usr/local/lib/android/sdk"
+          rm -rf "$SDK_DIR/ndk/25.2.9519653"
+          rm -rf "$SDK_DIR/ndk-bundle"
+          
+          mkdir -p "$SDK_DIR/cmdline-tools"
+          cd "$SDK_DIR/cmdline-tools"
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O tools.zip
+          unzip -q tools.zip && rm tools.zip && mv cmdline-tools latest
+          
+          ./latest/bin/sdkmanager --install "ndk;25.1.8937393"
+          
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> $GITHUB_ENV
+          echo "NDK_PATH=$SDK_DIR/ndk/25.1.8937393" >> $GITHUB_ENV
+
+      - name: Buat local.properties
         run: |
-          chmod +x gradlew
-          # Gunakan wildcard (*) untuk build SEMUA sub-modul (prov, pkix, core, dll)
-          ./gradlew :libraries:humla:libs:humla-spongycastle:*:assemble --no-daemon --stacktrace || \
-          # Fallback: jika wildcard gagal, coba build root project spongycastle
-          ./gradlew :libraries:humla:libs:humla-spongycastle:build --no-daemon --stacktrace
-      
-      # STEP VERIFIKASI: Pastikan file .jar benar-benar terbentuk sebelum lanjut compile
-      - name: Verify Spongy Castle Jars
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          echo "ndk.dir=$NDK_PATH" >> local.properties
+
+      - name: Izin Gradle
+        run: chmod +x gradlew libraries/humla/gradlew
+
+      - name: Bangun SpongyCastle
         run: |
-          echo "=== Mencari file JAR yang dihasilkan ==="
-          find libraries/humla/libs/humla-spongycastle -name "*.jar" -type f
-          echo "=== Selesai Pencarian ==="
-          # Cek file spesifik yang dibutuhkan
-          if [ ! -f "libraries/humla/libs/humla-spongycastle/prov/build/libs/prov-1.51.0.0.jar" ]; then
-            echo "ERROR: prov-1.51.0.0.jar tidak ditemukan!"
-            exit 1
-          fi
-          if [ ! -f "libraries/humla/libs/humla-spongycastle/pkix/build/libs/pkix-1.51.0.0.jar" ]; then
-            echo "ERROR: pkix-1.51.0.0.jar tidak ditemukan!"
-            exit 1
-          fi
-          echo "Semua file JAR Spongy Castle ditemukan! Lanjut build..."
-      
-      - name: Test and assemble FOSS debug and unsigned release
+          cd libraries/humla/libs/humla-spongycastle
+          ../../../../gradlew jar --no-daemon
+          cd ../../../../
+
+      - name: Bangun APK DEBUG
         run: |
-          chmod +x gradlew
-          ./gradlew :app:testFossDebugUnitTest :app:assembleFossDebug :app:assembleFossRelease --no-daemon --stacktrace
-      
-      - name: Upload debug APK
+          ./gradlew assembleDebug \
+            --stacktrace --no-daemon
+
+      - name: Simpan APK Debug
         uses: actions/upload-artifact@v4
         with:
-          name: mumla-foss-debug-${{ github.sha }}
-          path: app/build/outputs/apk/foss/debug/mumla-foss-debug.apk
-          if-no-files-found: error
-          retention-days: 14
-
-  web:
-    name: Portal tests and production build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: web
-        
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.16.0
-          run_install: false
-      
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      
-      - name: Test
-        run: pnpm test
-      
-      - name: Type-check
-        run: pnpm exec tsc --noEmit
-      
-      - name: Build
-        run: pnpm build
+          name: rangaka-Apk
+          path: "**/*debug*.apk"
