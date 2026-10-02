@@ -94,9 +94,10 @@ public class AudioLevelView extends View {
         }
     }
 
+    // PERBAIKAN TOTAL: Method lifecycle Android yang BENAR adalah "FromWindow" bukan "ToWindow"
     @Override
     protected void onDetachedFromWindow() {
-        super.onDetachedToWindow();
+        super.onDetachedFromWindow(); 
         if (this.mAnimator != null) {
             this.mAnimator.cancel();
         }
