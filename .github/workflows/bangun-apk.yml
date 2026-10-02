@@ -40,15 +40,32 @@ jobs:
         run: |
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;25.1.8937393"
       
-      # PERBAIKAN PATH: Memanggil gradlew dari ROOT project
+      # PERBAIKAN UTAMA: Build Spongy Castle dengan cara yang lebih robust
       - name: Build patched Spongy Castle jars
-        # Hapus working-directory, jalankan dari root
         run: |
           chmod +x gradlew
-          # Coba panggil task jar langsung ke modulnya dari root
-          ./gradlew :libraries:humla:libs:humla-spongycastle:jar --no-daemon || \
-          # Jika gagal, coba cari nama task yang benar
-          ./gradlew projects --no-daemon
+          # Gunakan wildcard (*) untuk build SEMUA sub-modul (prov, pkix, core, dll)
+          ./gradlew :libraries:humla:libs:humla-spongycastle:*:assemble --no-daemon --stacktrace || \
+          # Fallback: jika wildcard gagal, coba build root project spongycastle
+          ./gradlew :libraries:humla:libs:humla-spongycastle:build --no-daemon --stacktrace
+      
+      # STEP VERIFIKASI: Pastikan file .jar benar-benar terbentuk sebelum lanjut compile
+      - name: Verify Spongy Castle Jars
+        run: |
+          echo "=== Mencari file JAR yang dihasilkan ==="
+          find libraries/humla/libs/humla-spongycastle -name "*.jar" -type f
+          echo "=== Selesai Pencarian ==="
+          # Cek file spesifik yang dibutuhkan
+          if [ ! -f "libraries/humla/libs/humla-spongycastle/prov/build/libs/prov-1.51.0.0.jar" ]; then
+            echo "ERROR: prov-1.51.0.0.jar tidak ditemukan!"
+            exit 1
+          fi
+          if [ ! -f "libraries/humla/libs/humla-spongycastle/pkix/build/libs/pkix-1.51.0.0.jar" ]; then
+            echo "ERROR: pkix-1.51.0.0.jar tidak ditemukan!"
+            exit 1
+          fi
+          echo "Semua file JAR Spongy Castle ditemukan! Lanjut build..."
+      
       - name: Test and assemble FOSS debug and unsigned release
         run: |
           chmod +x gradlew
