@@ -19,6 +19,9 @@ package se.lublin.mumla.channel;
 
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.util.Log;
 import android.util.TypedValue;
@@ -55,7 +58,6 @@ import se.lublin.humla.util.VoiceTargetMode;
 import se.lublin.mumla.R;
 import se.lublin.mumla.Settings;
 import se.lublin.mumla.util.HumlaServiceFragment;
-// IMPORT TAMBAHAN: AudioLevelView
 import se.lublin.mumla.widget.AudioLevelView; 
 
 /**
@@ -70,8 +72,11 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     private Button mTalkButton;
     private View mTalkView;
     
-    // TAMBAHAN: Variabel untuk Bar Indikator Suara
+    // VARIABEL VISUALIZER & AUDIO RECORD
     private AudioLevelView mAudioLevelBar;
+    private AudioRecord mAudioRecord;
+    private boolean mIsRecording = false;
+    private Thread mAudioThread;
 
     private View mTargetPanel;
     private ImageView mTargetPanelCancel;
@@ -103,22 +108,19 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
                         break;
                     case PASSIVE:
                         mTalkButton.setPressed(false);
-                        // Reset bar saat diam
                         if (mAudioLevelBar != null) mAudioLevelBar.reset();
                         break;
                 }
             }
         }
 
-        // PERBAIKAN: Hapus @Override karena method ini tidak ada di interface asli HumlaObserver
-        // Tapi tetap berfungsi jika library mendukung callback ini secara dinamis
+        // Listener untuk library modif (jika nanti dipasang)
         public void onAudioInputLevelUpdated(float level) {
             if (mAudioLevelBar != null && mTalkButton.isPressed()) {
                 mAudioLevelBar.setLevel(level);
             }
         }
 
-        // PERBAIKAN: Hapus @Override juga di sini
         public void onAudioOutputLevelUpdated(float level) {
             if (mAudioLevelBar != null && !mTalkButton.isPressed()) {
                 mAudioLevelBar.setLevel(level);
@@ -170,7 +172,7 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
             mTabStrip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         }
 
-        // TAMBAHAN: Cari ID AudioLevelView dari layout XML
+        // INISIALISASI VISUALIZER
         mAudioLevelBar = view.findViewById(R.id.audio_level_bar);
         if (mAudioLevelBar != null) {
             mAudioLevelBar.setVisibility(View.VISIBLE);
@@ -256,13 +258,22 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        // MULAI BACA MIC SAAT FRAGMENT AKTIF
+        startVisualizerMic();
+    }
+
+    @Override
     public void onPause() {
         super.onPause();
+        // HENTIKAN BACA MIC SAAT FRAGMENT PAUSE
+        stopVisualizerMic();
+        
         if (getService() != null && getService().isConnected() &&
                 !Settings.getInstance(getActivity()).isPushToTalkToggle()) {
             getService().HumlaSession().setTalkingState(false);
         }
-        // Reset bar saat pause biar tidak nyangkut
         if (mAudioLevelBar != null) mAudioLevelBar.reset();
     }
 
@@ -270,6 +281,7 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     public void onDestroy() {
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(getActivity());
         preferences.unregisterOnSharedPreferenceChangeListener(this);
+        stopVisualizerMic(); // Pastikan thread mati total
         super.onDestroy();
     }
 
@@ -305,6 +317,8 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     }
 
     private void configureInput() {
+        if (mTalkView == null || mTalkButton == null) return;
+
         Settings settings = Settings.getInstance(getActivity());
         ViewGroup.LayoutParams params = mTalkView.getLayoutParams();
         params.height = settings.getPTTButtonHeight();
@@ -361,6 +375,68 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     @Override
     public void unregisterChatTargetListener(OnChatTargetSelectedListener listener) {
         mChatTargetListeners.remove(listener);
+    }
+
+    // METHOD BARU: MEMBACA LEVEL MIC LANGSUNG DARI HARDWARE
+    private void startVisualizerMic() {
+        if (mIsRecording || mAudioLevelBar == null) return;
+        
+        try {
+            int bufferSize = AudioRecord.getMinBufferSize(44100, 
+                AudioFormat.CHANNEL_IN_MONO, 
+                AudioFormat.ENCODING_PCM_16BIT);
+                
+            mAudioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC, 
+                44100, 
+                AudioFormat.CHANNEL_IN_MONO, 
+                AudioFormat.ENCODING_PCM_16BIT, 
+                bufferSize * 2);
+                
+            if (mAudioRecord.getState() != AudioRecord.STATE_INITIALIZED) return;
+
+            mIsRecording = true;
+            mAudioThread = new Thread(() -> {
+                mAudioRecord.startRecording();
+                short[] buffer = new short[bufferSize];
+                
+                while (mIsRecording) {
+                    int read = mAudioRecord.read(buffer, 0, bufferSize);
+                    if (read > 0) {
+                        long sum = 0;
+                        for (int i = 0; i < read; i++) sum += buffer[i] * buffer[i];
+                        float rms = (float) Math.sqrt(sum / read);
+                        // Normalisasi ke 0.0 - 1.0
+                        float level = Math.min(1.0f, rms / 30000.0f); 
+                        
+                        if (getActivity() != null) {
+                            getActivity().runOnUiThread(() -> {
+                                if (mAudioLevelBar != null) mAudioLevelBar.setLevel(level);
+                            });
+                        }
+                    }
+                    try { Thread.sleep(16); } catch (InterruptedException e) {}
+                }
+            });
+            mAudioThread.start();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start visualizer mic: " + e.getMessage());
+        }
+    }
+
+    private void stopVisualizerMic() {
+        mIsRecording = false;
+        if (mAudioThread != null) {
+            try { mAudioThread.join(500); } catch (InterruptedException e) {}
+            mAudioThread = null;
+        }
+        if (mAudioRecord != null) {
+            try {
+                mAudioRecord.stop();
+                mAudioRecord.release();
+            } catch (Exception e) {}
+            mAudioRecord = null;
+        }
+        if (mAudioLevelBar != null) mAudioLevelBar.reset();
     }
 
     private class ChannelFragmentPagerAdapter extends FragmentPagerAdapter {
