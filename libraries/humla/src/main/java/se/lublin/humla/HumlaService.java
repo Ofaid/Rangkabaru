@@ -119,6 +119,9 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     public static final String EXTRAS_LOCAL_IGNORE_HISTORY = "local_ignore_history";
     public static final String EXTRAS_ENABLE_PREPROCESSOR = "enable_preprocessor";
     public static final String EXTRAS_ECHO_CANCELLATION_METHOD = "echo_cancellation_method";
+    
+    // BARIS TAMBAHAN INI YANG MEMBUAT FITUR SUSPEND MIC BISA JALAN TANPA ERROR
+    public static final String EXTRAS_SUSPEND_MIC_IDLE = "suspend_mic_idle";
 
     // Service settings
     private Server mServer;
@@ -247,7 +250,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
             if (ACTION_CONNECT.equals(intent.getAction())) {
                 if (extras == null || !extras.containsKey(EXTRAS_SERVER)) {
-                    // Ensure that we have been provided all required attributes.```
+                    // Ensure that we have been provided all required attributes.
                     throw new RuntimeException(ACTION_CONNECT + " requires a server provided in extras.");
                 }
                 connect();
