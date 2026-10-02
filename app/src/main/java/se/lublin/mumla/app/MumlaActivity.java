@@ -387,6 +387,14 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
                 new StartupAction().execute(this);
             }
         }
+
+        // TAMBAHAN BARU: MINTA IZIN MIC DI DEPAN AGAR VISUALIZER SIAP PAKAI SEJAK AWAL
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.RECORD_AUDIO},
+                    PERMISSIONS_REQUEST_RECORD_AUDIO);
+        }
     }
 
     @Override
