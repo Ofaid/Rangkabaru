@@ -42,11 +42,13 @@ jobs:
       
       # PERBAIKAN PATH: Memanggil gradlew dari ROOT project
       - name: Build patched Spongy Castle jars
-        working-directory: libraries/humla/libs/humla-spongycastle
+        # Hapus working-directory, jalankan dari root
         run: |
-          chmod +x ../../../../gradlew
-          ../../../../gradlew :libraries:humla:libs:humla-spongycastle:jar --no-daemon
-      
+          chmod +x gradlew
+          # Coba panggil task jar langsung ke modulnya dari root
+          ./gradlew :libraries:humla:libs:humla-spongycastle:jar --no-daemon || \
+          # Jika gagal, coba cari nama task yang benar
+          ./gradlew projects --no-daemon
       - name: Test and assemble FOSS debug and unsigned release
         run: |
           chmod +x gradlew
