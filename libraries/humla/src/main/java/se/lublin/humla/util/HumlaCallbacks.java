@@ -178,30 +178,22 @@ public class HumlaCallbacks implements IHumlaObserver {
         }
     }
 
-    // TAMBAHAN BARU: JEMBATAN UNTUK VISUALIZER AUDIO LEVEL
-    // Method ini memanggil observer secara manual agar tidak error jika observer lain tidak support
+    // JEMBATAN REFLECTION MURNI: TIDAK IMPORT PACKAGE MUMLA SEDIKITPUN
     public void onAudioInputLevelUpdated(float level) {
         for (IHumlaObserver observer : mCallbacks) {
             try {
-                // Cek apakah observer ini adalah ChannelFragment yang punya method visualizer
-                if (observer instanceof se.lublin.mumla.channel.ChannelFragment) {
-                    ((se.lublin.mumla.channel.ChannelFragment) observer).onAudioInputLevelUpdated(level);
-                }
-            } catch (Exception e) {
-                // Abaikan error agar tidak mengganggu proses audio utama
-            }
+                java.lang.reflect.Method m = observer.getClass().getMethod("onAudioInputLevelUpdated", float.class);
+                m.invoke(observer, level);
+            } catch (Exception ignored) {}
         }
     }
 
     public void onAudioOutputLevelUpdated(float level) {
         for (IHumlaObserver observer : mCallbacks) {
             try {
-                if (observer instanceof se.lublin.mumla.channel.ChannelFragment) {
-                    ((se.lublin.mumla.channel.ChannelFragment) observer).onAudioOutputLevelUpdated(level);
-                }
-            } catch (Exception e) {
-                // Abaikan error
-            }
+                java.lang.reflect.Method m = observer.getClass().getMethod("onAudioOutputLevelUpdated", float.class);
+                m.invoke(observer, level);
+            } catch (Exception ignored) {}
         }
     }
 }
