@@ -1,0 +1,3 @@
+[submodule "libraries/humla"]
+	path = libraries/humla
+	url = git@github.com:ChinThePluter/humla.git
