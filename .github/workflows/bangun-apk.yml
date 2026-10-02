@@ -1,5 +1,5 @@
-name: Bangun OFA (Debug)
-run-name: Bangun OFA - APK Debug Lengkap
+name: Bangun OFA (Foss Debug)
+run-name: Bangun OFA - APK Foss Debug (Bisa Install di HP Lain)
 
 on:
   push:
@@ -15,7 +15,6 @@ jobs:
     steps:
       - name: Ambil kode
         uses: actions/checkout@v4
-        # HAPUS submodules: recursive karena semua file sudah static
       
       - name: Siapkan Java
         uses: actions/setup-java@v4
@@ -53,13 +52,16 @@ jobs:
           ../../../../gradlew jar --no-daemon
           cd ../../../../
 
-      - name: Bangun APK DEBUG
+      # PERUBAHAN UTAMA: Ganti assembleDebug jadi assembleFossDebug
+      - name: Bangun APK FOSS DEBUG
         run: |
-          ./gradlew assembleDebug \
+          ./gradlew :app:assembleFossDebug \
             --stacktrace --no-daemon
 
-      - name: Simpan APK Debug
+      # Path artifact spesifik biar tidak error upload
+      - name: Simpan APK Foss Debug
         uses: actions/upload-artifact@v4
         with:
-          name: rangaka-Apk
-          path: "**/*debug*.apk"
+          name: Mumla-Foss-Debug-APK
+          path: app/build/outputs/apk/foss/debug/mumla-foss-debug.apk
+          if-no-files-found: error
