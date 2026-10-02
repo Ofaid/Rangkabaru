@@ -55,7 +55,8 @@ import se.lublin.humla.util.VoiceTargetMode;
 import se.lublin.mumla.R;
 import se.lublin.mumla.Settings;
 import se.lublin.mumla.util.HumlaServiceFragment;
-import se.lublin.mumla.widget.AudioLevelView; // IMPORT AUDIO LEVEL VIEW
+// IMPORT TAMBAHAN: AudioLevelView
+import se.lublin.mumla.widget.AudioLevelView; 
 
 /**
  * Class to encapsulate both a ChannelListFragment and ChannelChatFragment.
@@ -69,7 +70,7 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     private Button mTalkButton;
     private View mTalkView;
     
-    // TAMBAHAN: Deklarasi AudioLevelView
+    // TAMBAHAN: Variabel untuk Bar Indikator Suara
     private AudioLevelView mAudioLevelBar;
 
     private View mTargetPanel;
@@ -109,16 +110,15 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
             }
         }
 
-        // TAMBAHAN: Listener untuk level suara input (mic kamu)
-        @Override
+        // PERBAIKAN: Hapus @Override karena method ini tidak ada di interface asli HumlaObserver
+        // Tapi tetap berfungsi jika library mendukung callback ini secara dinamis
         public void onAudioInputLevelUpdated(float level) {
             if (mAudioLevelBar != null && mTalkButton.isPressed()) {
                 mAudioLevelBar.setLevel(level);
             }
         }
 
-        // TAMBAHAN: Listener untuk level suara output (suara teman)
-        @Override
+        // PERBAIKAN: Hapus @Override juga di sini
         public void onAudioOutputLevelUpdated(float level) {
             if (mAudioLevelBar != null && !mTalkButton.isPressed()) {
                 mAudioLevelBar.setLevel(level);
@@ -170,7 +170,7 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
             mTabStrip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         }
 
-        // TAMBAHAN: Inisialisasi AudioLevelView dari layout
+        // TAMBAHAN: Cari ID AudioLevelView dari layout XML
         mAudioLevelBar = view.findViewById(R.id.audio_level_bar);
         if (mAudioLevelBar != null) {
             mAudioLevelBar.setVisibility(View.VISIBLE);
