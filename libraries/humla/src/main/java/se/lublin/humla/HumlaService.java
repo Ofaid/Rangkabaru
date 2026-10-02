@@ -77,17 +77,10 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     private static final String TAG = HumlaService.class.getName();
 
     static {
-        // Use Spongy Castle for crypto implementation so we can create and manage PKCS #12 (.p12) certificates.
         Security.insertProviderAt(new org.spongycastle.jce.provider.BouncyCastleProvider(), 1);
     }
 
-    /**
-     * An action to immediately connect to a given Mumble server.
-     * Requires that {@link #EXTRAS_SERVER} is provided.
-     */
     public static final String ACTION_CONNECT = "se.lublin.humla.CONNECT";
-
-    /** A {@link Server} specifying the server to connect to. */
     public static final String EXTRAS_SERVER = "server";
     public static final String EXTRAS_AUTO_RECONNECT = "auto_reconnect";
     public static final String EXTRAS_AUTO_RECONNECT_DELAY = "auto_reconnect_delay";
@@ -106,24 +99,16 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     public static final String EXTRAS_AUDIO_SOURCE = "audio_source";
     public static final String EXTRAS_AUDIO_STREAM = "audio_stream";
     public static final String EXTRAS_FRAMES_PER_PACKET = "frames_per_packet";
-    /** An optional path to a trust store for CA certificates. */
     public static final String EXTRAS_TRUST_STORE = "trust_store";
-    /** The trust store's password. */
     public static final String EXTRAS_TRUST_STORE_PASSWORD = "trust_store_password";
-    /** The trust store's format. */
     public static final String EXTRAS_TRUST_STORE_FORMAT = "trust_store_format";
     public static final String EXTRAS_HALF_DUPLEX = "half_duplex";
-    /** A list of users that should be local muted upon connection. */
     public static final String EXTRAS_LOCAL_MUTE_HISTORY = "local_mute_history";
-    /** A list of users that should be local ignored upon connection. */
     public static final String EXTRAS_LOCAL_IGNORE_HISTORY = "local_ignore_history";
     public static final String EXTRAS_ENABLE_PREPROCESSOR = "enable_preprocessor";
     public static final String EXTRAS_ECHO_CANCELLATION_METHOD = "echo_cancellation_method";
-    
-    // BARIS TAMBAHAN INI YANG MEMBUAT FITUR SUSPEND MIC BISA JALAN TANPA ERROR
     public static final String EXTRAS_SUSPEND_MIC_IDLE = "suspend_mic_idle";
 
-    // Service settings
     private Server mServer;
     private boolean mAutoReconnect;
     private int mAutoReconnectDelay;
@@ -161,21 +146,13 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
     private boolean mReconnecting;
 
-    /**
-     * Listen for connectivity changes in the reconnection state, and reconnect accordingly.
-     */
     private final BroadcastReceiver mConnectivityReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (!mReconnecting) {
-                try {
-                    unregisterReceiver(this);
-                } catch (IllegalArgumentException e) {
-                    Log.e(TAG, "Error unregistering connectivity receiver: " + e.getMessage());
-                }
+                try { unregisterReceiver(this); } catch (IllegalArgumentException e) { Log.e(TAG, "Error unregistering connectivity receiver: " + e.getMessage()); }
                 return;
             }
-
             ConnectivityManager cm = (ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE);
             NetworkInfo info = cm.getActiveNetworkInfo();
             if (info != null && info.isConnected()) {
@@ -185,7 +162,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         }
     };
 
-    // MODIFIKASI MINIMAL: MENAMBAHKAN CALLBACK AUDIO LEVEL KE LISTENER ASLI
+    // PERBAIKAN: HAPUS @Override PADA METHOD BARU INI
     private final AudioHandler.AudioEncodeListener mAudioInputListener =
             new AudioHandler.AudioEncodeListener() {
                 @Override
@@ -203,33 +180,27 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
                             try {
                                 if (!isSynchronized()) return;
                                 if (mModelHandler == null || mConnection == null) return;
-                                
                                 final User currentUser = mModelHandler.getUser(mConnection.getSession());
                                 if (currentUser == null) return;
-
                                 currentUser.setTalkState(talking ? TalkState.TALKING : TalkState.PASSIVE);
                                 mCallbacks.onUserTalkStateUpdated(currentUser);
-                            } catch (NotSynchronizedException e) {
-                                e.printStackTrace();
-                            }
+                            } catch (NotSynchronizedException e) { e.printStackTrace(); }
                         }
                     });
                 }
 
-                // TAMBAHAN BARU: Callback untuk Visualizer Input Level
-                @Override
+                // TIDAK ADA @Override DI SINI KARENA METHOD INI BUATAN SENDIRI
                 public void onAudioInputLevelUpdated(final float level) {
                     mHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            // Panggil callback di observer Fragment
                             mCallbacks.onAudioInputLevelUpdated(level);
                         }
                     });
                 }
             };
 
-    // MODIFIKASI MINIMAL: MENAMBAHKAN CALLBACK AUDIO LEVEL OUTPUT
+    // PERBAIKAN: HAPUS @Override PADA METHOD BARU INI JUGA
     private AudioOutput.AudioOutputListener mAudioOutputListener = new AudioOutput.AudioOutputListener() {
         @Override
         public void onUserTalkStateUpdated(final User user) {
@@ -238,14 +209,11 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
         @Override
         public User getUser(int session) {
-            if (mModelHandler != null) {
-                return mModelHandler.getUser(session);
-            }
+            if (mModelHandler != null) return mModelHandler.getUser(session);
             return null;
         }
 
-        // TAMBAHAN BARU: Callback untuk Visualizer Output Level
-        @Override
+        // TIDAK ADA @Override DI SINI
         public void onAudioOutputLevelUpdated(final float level) {
             mHandler.post(new Runnable() {
                 @Override
@@ -261,13 +229,8 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         if (intent != null) {
             Bundle extras = intent.getExtras();
             if (extras != null) {
-                try {
-                    configureExtras(extras);
-                } catch (AudioException e) {
-                    throw new RuntimeException("Attempted to initialize audio in onStartCommand erroneously.");
-                }
+                try { configureExtras(extras); } catch (AudioException e) { throw new RuntimeException("Attempted to initialize audio in onStartCommand erroneously."); }
             }
-
             if (ACTION_CONNECT.equals(intent.getAction())) {
                 if (extras == null || !extras.containsKey(EXTRAS_SERVER)) {
                     throw new RuntimeException(ACTION_CONNECT + " requires a server provided in extras.");
@@ -275,7 +238,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
                 connect();
             }
         }
-
         return START_NOT_STICKY;
     }
 
@@ -295,27 +257,19 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         mBluetoothReceiver = new BluetoothScoReceiver(this, this);
         registerReceiver(mBluetoothReceiver, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
         mToggleInputMode = new ToggleInputMode();
-        mActivityInputMode = new ActivityInputMode(0); // FIXME: reasonable default
+        mActivityInputMode = new ActivityInputMode(0);
         mContinuousInputMode = new ContinuousInputMode();
         mWhisperTargetList = new WhisperTargetList();
-
-        // initialize minidns dns lookup mechanisms
         AndroidUsingLinkProperties.setup(this);
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        try {
-            unregisterReceiver(mBluetoothReceiver);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Error unregistering bluetooth receiver: " + e.getMessage());
-        }
+        try { unregisterReceiver(mBluetoothReceiver); } catch (IllegalArgumentException e) { Log.e(TAG, "Error unregistering bluetooth receiver: " + e.getMessage()); }
     }
 
-    public IBinder onBind(Intent intent) {
-        return new HumlaBinder(this);
-    }
+    public IBinder onBind(Intent intent) { return new HumlaBinder(this); }
 
     protected void connect() {
         try {
@@ -323,21 +277,15 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
             mConnectionState = ConnectionState.DISCONNECTED;
             mVoiceTargetId = 0;
             mWhisperTargetList.clear();
-
             mConnection = new HumlaConnection(this);
             mConnection.setForceTCP(mForceTcp);
             mConnection.setUseTor(mUseTor);
             mConnection.setKeys(mCertificate, mCertificatePassword);
             mConnection.setTrustStore(mTrustStore, mTrustStorePassword, mTrustStoreFormat);
-
-            mModelHandler = new ModelHandler(this, mCallbacks, this,
-                    mLocalMuteHistory, mLocalIgnoreHistory);
+            mModelHandler = new ModelHandler(this, mCallbacks, this, mLocalMuteHistory, mLocalIgnoreHistory);
             mConnection.addTCPMessageHandlers(mModelHandler);
-
             mConnectionState = ConnectionState.CONNECTING;
-
             mCallbacks.onConnecting();
-
             mConnection.connect(mServer.getSrvHost(), mServer.getSrvPort());
         } catch (HumlaException e) {
             e.printStackTrace();
@@ -345,144 +293,77 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         }
     }
 
-    public void disconnect() {
-        if (mConnection != null) {
-            mConnection.disconnect();
-        }
-    }
-
-    public boolean isConnectionEstablished() {
-        return mConnection != null && mConnection.isConnected();
-    }
-
-    /**
-     * @return true if Humla has received the ServerSync message, indicating synchronization with
-     * the server's model and settings. This is the main state of the service.
-     */
-    public boolean isSynchronized() {
-        return mConnection != null && mConnection.isSynchronized();
-    }
+    public void disconnect() { if (mConnection != null) mConnection.disconnect(); }
+    public boolean isConnectionEstablished() { return mConnection != null && mConnection.isConnected(); }
+    public boolean isSynchronized() { return mConnection != null && mConnection.isSynchronized(); }
 
     @Override
     public void onConnectionEstablished() {
-        // Send version information and authenticate.
         final Mumble.Version.Builder version = Mumble.Version.newBuilder();
         version.setRelease(mClientName);
         version.setVersion(Constants.PROTOCOL_VERSION);
         version.setOs("Android");
         version.setOsVersion(Build.VERSION.RELEASE);
-
         final Mumble.Authenticate.Builder auth = Mumble.Authenticate.newBuilder();
         auth.setUsername(mServer.getUsername());
         auth.setPassword(mServer.getPassword());
         auth.addCeltVersions(CELT7.getBitstreamVersion());
-        // FIXME: resolve issues with CELT 11 robot voices.
-//            auth.addCeltVersions(Constants.CELT_11_VERSION);
         auth.setOpus(mUseOpus);
         auth.addAllTokens(mAccessTokens);
-
         mConnection.sendTCPMessage(version.build(), HumlaTCPMessageType.Version);
         mConnection.sendTCPMessage(auth.build(), HumlaTCPMessageType.Authenticate);
     }
 
     @Override
     public void onConnectionSynchronized() {
-        // early disconned?
-        if (!mConnection.isConnected()) {
-            return;
-        }
-
-        // TODO hackish, but this seems to happen?!
-        if (mModelHandler == null) {
-            Log.e(TAG, "onConnectionSynchronized: mAudioHandler is null");
-            return;
-        }
-
+        if (!mConnection.isConnected()) return;
+        if (mModelHandler == null) { Log.e(TAG, "onConnectionSynchronized: mAudioHandler is null"); return; }
         mConnectionState = ConnectionState.CONNECTED;
-
         Log.v(TAG, "Connected");
         mWakeLock.acquire();
-
         try {
-            mAudioHandler = mAudioBuilder.initialize(
-                    mModelHandler.getUser(mConnection.getSession()),
-                    mConnection.getMaxBandwidth(), mConnection.getCodec(),
-                    mVoiceTargetId);
+            mAudioHandler = mAudioBuilder.initialize(mModelHandler.getUser(mConnection.getSession()), mConnection.getMaxBandwidth(), mConnection.getCodec(), mVoiceTargetId);
             mConnection.addTCPMessageHandlers(mAudioHandler);
             mConnection.addUDPMessageHandlers(mAudioHandler);
-        } catch (AudioException e) {
-            e.printStackTrace();
-            onConnectionWarning(e.getMessage());
-        } catch (NotSynchronizedException e) {
-            throw new RuntimeException("Connection should be synchronized in callback for synchronization!", e);
-        }
-
+        } catch (AudioException e) { e.printStackTrace(); onConnectionWarning(e.getMessage()); } 
+          catch (NotSynchronizedException e) { throw new RuntimeException("Connection should be synchronized!", e); }
         mCallbacks.onConnected();
     }
 
     @Override
-    public void onConnectionHandshakeFailed(X509Certificate[] chain) {
-        mCallbacks.onTLSHandshakeFailed(chain);
-    }
+    public void onConnectionHandshakeFailed(X509Certificate[] chain) { mCallbacks.onTLSHandshakeFailed(chain); }
 
     @Override
     public void onConnectionDisconnected(HumlaException e) {
         if (e != null) {
             Log.e(TAG, "Error: " + e.getMessage() + " (reason: " + e.getReason().name() + ")");
             mConnectionState = ConnectionState.CONNECTION_LOST;
-
-            setReconnecting(mAutoReconnect
-                    && e.getReason() == HumlaException.HumlaDisconnectReason.CONNECTION_ERROR);
+            setReconnecting(mAutoReconnect && e.getReason() == HumlaException.HumlaDisconnectReason.CONNECTION_ERROR);
         } else {
             Log.v(TAG, "Disconnected");
             mConnectionState = ConnectionState.DISCONNECTED;
         }
-
-        if(mWakeLock.isHeld()) {
-            mWakeLock.release();
-        }
-
-        if (mAudioHandler != null) {
-            mAudioHandler.shutdown();
-        }
-
+        if(mWakeLock.isHeld()) mWakeLock.release();
+        if (mAudioHandler != null) mAudioHandler.shutdown();
         mModelHandler = null;
         mAudioHandler = null;
         mVoiceTargetId = 0;
         mWhisperTargetList.clear();
-
-        // Halt SCO connection on shutdown.
         mBluetoothReceiver.stopBluetoothSco();
-
         mCallbacks.onDisconnected(e);
     }
 
     @Override
-    public void onConnectionWarning(String warning) {
-        logWarning(warning);
-    }
-
+    public void onConnectionWarning(String warning) { logWarning(warning); }
     @Override
-    public void logInfo(String message) {
-        if (mConnection == null || !mConnection.isSynchronized())
-            return; // don't log info prior to synchronization
-        mCallbacks.onLogInfo(message);
-    }
-
+    public void logInfo(String message) { if (mConnection == null || !mConnection.isSynchronized()) return; mCallbacks.onLogInfo(message); }
     @Override
-    public void logWarning(String message) {
-        mCallbacks.onLogWarning(message);
-    }
-
+    public void logWarning(String message) { mCallbacks.onLogWarning(message); }
     @Override
-    public void logError(String message) {
-        mCallbacks.onLogError(message);
-    }
+    public void logError(String message) { mCallbacks.onLogError(message); }
 
     public void setReconnecting(boolean reconnecting) {
-        if (mReconnecting == reconnecting)
-            return;
-
+        if (mReconnecting == reconnecting) return;
         mReconnecting = reconnecting;
         if (reconnecting) {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
@@ -490,775 +371,339 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
             if (info != null && info.isConnected()) {
                 Log.v(TAG, "Connection lost due to non-connectivity issue. Start reconnect polling.");
                 Handler mainHandler = new Handler();
-                mainHandler.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (mReconnecting) connect();
-                    }
-                }, mAutoReconnectDelay);
+                mainHandler.postDelayed(() -> { if (mReconnecting) connect(); }, mAutoReconnectDelay);
             } else {
-                // In the event that we've lost connectivity, don't poll. Wait until network
-                // returns before we resume connection attempts.
                 Log.v(TAG, "Connection lost due to connectivity issue. Waiting until network returns.");
-                try {
-                    registerReceiver(mConnectivityReceiver,
-                            new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
-                } catch (IllegalArgumentException e) {
-                    Log.e(TAG, "Error registering connectivity receiver: " + e.getMessage());
-                }
+                try { registerReceiver(mConnectivityReceiver, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION)); } 
+                  catch (IllegalArgumentException e) { Log.e(TAG, "Error registering connectivity receiver: " + e.getMessage()); }
             }
         } else {
-            try {
-                unregisterReceiver(mConnectivityReceiver);
-            } catch (IllegalArgumentException e) {
-                Log.e(TAG, "Error unregistering connectivity receiver: " + e.getMessage());
-            }
+            try { unregisterReceiver(mConnectivityReceiver); } 
+              catch (IllegalArgumentException e) { Log.e(TAG, "Error unregistering connectivity receiver: " + e.getMessage()); }
         }
     }
 
-    /**
-     * Instantiates an audio handler with the current service settings, destroying any previous
-     * handler. Requires synchronization with the server, as the maximum bandwidth and session must
-     * be known.
-     */
     private void createAudioHandler() throws AudioException {
-        if (BuildConfig.DEBUG && mConnectionState != ConnectionState.CONNECTED) {
-            throw new AssertionError("Attempted to instantiate audio handler when not connected!");
-        }
-
+        if (BuildConfig.DEBUG && mConnectionState != ConnectionState.CONNECTED) throw new AssertionError("Not connected!");
         if (mAudioHandler != null) {
             mConnection.removeTCPMessageHandler(mAudioHandler);
             mConnection.removeUDPMessageHandler(mAudioHandler);
             mAudioHandler.shutdown();
         }
-
         try {
-            mAudioHandler = mAudioBuilder.initialize(
-                    mModelHandler.getUser(mConnection.getSession()),
-                    mConnection.getMaxBandwidth(), mConnection.getCodec(),
-                    mVoiceTargetId);
+            mAudioHandler = mAudioBuilder.initialize(mModelHandler.getUser(mConnection.getSession()), mConnection.getMaxBandwidth(), mConnection.getCodec(), mVoiceTargetId);
             mConnection.addTCPMessageHandlers(mAudioHandler);
             mConnection.addUDPMessageHandlers(mAudioHandler);
-        } catch (NotSynchronizedException e) {
-            throw new RuntimeException("Attempted to create audio handler when not synchronized!");
-        }
+        } catch (NotSynchronizedException e) { throw new RuntimeException("Not synchronized!", e); }
     }
 
-    /**
-     * Loads all defined settings from the given bundle into the HumlaService.
-     * Some settings may only take effect after a reconnect.
-     * @param extras A bundle with settings.
-     * @return true if a reconnect is required for changes to take effect.
-     * @see se.lublin.humla.HumlaService
-     */
     public boolean configureExtras(Bundle extras) throws AudioException {
         boolean reconnectNeeded = false;
-        if (extras.containsKey(EXTRAS_SERVER)) {
-            mServer = extras.getParcelable(EXTRAS_SERVER);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_AUTO_RECONNECT)) {
-            mAutoReconnect = extras.getBoolean(EXTRAS_AUTO_RECONNECT);
-        }
-        if (extras.containsKey(EXTRAS_AUTO_RECONNECT_DELAY)) {
-            mAutoReconnectDelay = extras.getInt(EXTRAS_AUTO_RECONNECT_DELAY);
-        }
-        if (extras.containsKey(EXTRAS_CERTIFICATE)) {
-            mCertificate = extras.getByteArray(EXTRAS_CERTIFICATE);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_CERTIFICATE_PASSWORD)) {
-            mCertificatePassword = extras.getString(EXTRAS_CERTIFICATE_PASSWORD);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_DETECTION_THRESHOLD)) {
-            mActivityInputMode.setThreshold(extras.getFloat(EXTRAS_DETECTION_THRESHOLD));
-        }
-        if (extras.containsKey(EXTRAS_AMPLITUDE_BOOST)) {
-            mAudioBuilder.setAmplitudeBoost(extras.getFloat(EXTRAS_AMPLITUDE_BOOST));
-        }
+        if (extras.containsKey(EXTRAS_SERVER)) { mServer = extras.getParcelable(EXTRAS_SERVER); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_AUTO_RECONNECT)) mAutoReconnect = extras.getBoolean(EXTRAS_AUTO_RECONNECT);
+        if (extras.containsKey(EXTRAS_AUTO_RECONNECT_DELAY)) mAutoReconnectDelay = extras.getInt(EXTRAS_AUTO_RECONNECT_DELAY);
+        if (extras.containsKey(EXTRAS_CERTIFICATE)) { mCertificate = extras.getByteArray(EXTRAS_CERTIFICATE); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_CERTIFICATE_PASSWORD)) { mCertificatePassword = extras.getString(EXTRAS_CERTIFICATE_PASSWORD); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_DETECTION_THRESHOLD)) mActivityInputMode.setThreshold(extras.getFloat(EXTRAS_DETECTION_THRESHOLD));
+        if (extras.containsKey(EXTRAS_AMPLITUDE_BOOST)) mAudioBuilder.setAmplitudeBoost(extras.getFloat(EXTRAS_AMPLITUDE_BOOST));
         if (extras.containsKey(EXTRAS_TRANSMIT_MODE)) {
             mTransmitMode = extras.getInt(EXTRAS_TRANSMIT_MODE);
             IInputMode inputMode;
             switch (mTransmitMode) {
-                case Constants.TRANSMIT_PUSH_TO_TALK:
-                    inputMode = mToggleInputMode;
-                    break;
-                case Constants.TRANSMIT_CONTINUOUS:
-                    inputMode = mContinuousInputMode;
-                    break;
-                case Constants.TRANSMIT_VOICE_ACTIVITY:
-                    inputMode = mActivityInputMode;
-                    break;
-                default:
-                    throw new IllegalArgumentException();
+                case Constants.TRANSMIT_PUSH_TO_TALK: inputMode = mToggleInputMode; break;
+                case Constants.TRANSMIT_CONTINUOUS: inputMode = mContinuousInputMode; break;
+                case Constants.TRANSMIT_VOICE_ACTIVITY: inputMode = mActivityInputMode; break;
+                default: throw new IllegalArgumentException();
             }
             mAudioBuilder.setInputMode(inputMode);
         }
-        if (extras.containsKey(EXTRAS_INPUT_RATE)) {
-            mAudioBuilder.setInputSampleRate(extras.getInt(EXTRAS_INPUT_RATE));
-        }
-        if (extras.containsKey(EXTRAS_INPUT_QUALITY)) {
-            mAudioBuilder.setTargetBitrate(extras.getInt(EXTRAS_INPUT_QUALITY));
-        }
-        if (extras.containsKey(EXTRAS_USE_OPUS)) {
-            mUseOpus = extras.getBoolean(EXTRAS_USE_OPUS);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_USE_TOR)) {
-            mUseTor = extras.getBoolean(EXTRAS_USE_TOR);
-            mForceTcp |= mUseTor; // Tor requires TCP connections to work- if it's on, force TCP.
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_FORCE_TCP)) {
-            mForceTcp |= extras.getBoolean(EXTRAS_FORCE_TCP);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_CLIENT_NAME)) {
-            mClientName = extras.getString(EXTRAS_CLIENT_NAME);
-            reconnectNeeded = true;
-        }
+        if (extras.containsKey(EXTRAS_INPUT_RATE)) mAudioBuilder.setInputSampleRate(extras.getInt(EXTRAS_INPUT_RATE));
+        if (extras.containsKey(EXTRAS_INPUT_QUALITY)) mAudioBuilder.setTargetBitrate(extras.getInt(EXTRAS_INPUT_QUALITY));
+        if (extras.containsKey(EXTRAS_USE_OPUS)) { mUseOpus = extras.getBoolean(EXTRAS_USE_OPUS); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_USE_TOR)) { mUseTor = extras.getBoolean(EXTRAS_USE_TOR); mForceTcp |= mUseTor; reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_FORCE_TCP)) { mForceTcp |= extras.getBoolean(EXTRAS_FORCE_TCP); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_CLIENT_NAME)) { mClientName = extras.getString(EXTRAS_CLIENT_NAME); reconnectNeeded = true; }
         if (extras.containsKey(EXTRAS_ACCESS_TOKENS)) {
             mAccessTokens = extras.getStringArrayList(EXTRAS_ACCESS_TOKENS);
-            if (mConnection != null && mConnection.isConnected()) {
-                mConnection.sendAccessTokens(mAccessTokens);
-            }
+            if (mConnection != null && mConnection.isConnected()) mConnection.sendAccessTokens(mAccessTokens);
         }
-        if (extras.containsKey(EXTRAS_AUDIO_SOURCE)) {
-            mAudioBuilder.setAudioSource(extras.getInt(EXTRAS_AUDIO_SOURCE));
-        }
-        if (extras.containsKey(EXTRAS_AUDIO_STREAM)) {
-            mAudioBuilder.setAudioStream(extras.getInt(EXTRAS_AUDIO_STREAM));
-        }
-        if (extras.containsKey(EXTRAS_FRAMES_PER_PACKET)) {
-            mAudioBuilder.setTargetFramesPerPacket(extras.getInt(EXTRAS_FRAMES_PER_PACKET));
-        }
-        if (extras.containsKey(EXTRAS_TRUST_STORE)) {
-            mTrustStore = extras.getString(EXTRAS_TRUST_STORE);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_TRUST_STORE_PASSWORD)) {
-            mTrustStorePassword = extras.getString(EXTRAS_TRUST_STORE_PASSWORD);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_TRUST_STORE_FORMAT)) {
-            mTrustStoreFormat = extras.getString(EXTRAS_TRUST_STORE_FORMAT);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_HALF_DUPLEX)) {
-            mAudioBuilder.setHalfDuplexEnabled(
-                    extras.getInt(EXTRAS_TRANSMIT_MODE) == Constants.TRANSMIT_PUSH_TO_TALK
-                            && extras.getBoolean(EXTRAS_HALF_DUPLEX));
-        }
-        if (extras.containsKey(EXTRAS_LOCAL_MUTE_HISTORY)) {
-            mLocalMuteHistory = extras.getIntegerArrayList(EXTRAS_LOCAL_MUTE_HISTORY);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_LOCAL_IGNORE_HISTORY)) {
-            mLocalIgnoreHistory = extras.getIntegerArrayList(EXTRAS_LOCAL_IGNORE_HISTORY);
-            reconnectNeeded = true;
-        }
-        if (extras.containsKey(EXTRAS_ENABLE_PREPROCESSOR)) {
-            mAudioBuilder.setPreprocessorEnabled(extras.getBoolean(EXTRAS_ENABLE_PREPROCESSOR));
-        }
-        if (extras.containsKey(EXTRAS_ECHO_CANCELLATION_METHOD)) {
-            mAudioBuilder.setEchoCancellationMethod(extras.getString(EXTRAS_ECHO_CANCELLATION_METHOD));
-        }
-
-        // Reload audio subsystem if initialized
-        if (mAudioHandler != null && mAudioHandler.isInitialized()) {
-            createAudioHandler();
-            Log.i(TAG, "Audio subsystem reloaded after settings change.");
-        }
+        if (extras.containsKey(EXTRAS_AUDIO_SOURCE)) mAudioBuilder.setAudioSource(extras.getInt(EXTRAS_AUDIO_SOURCE));
+        if (extras.containsKey(EXTRAS_AUDIO_STREAM)) mAudioBuilder.setAudioStream(extras.getInt(EXTRAS_AUDIO_STREAM));
+        if (extras.containsKey(EXTRAS_FRAMES_PER_PACKET)) mAudioBuilder.setTargetFramesPerPacket(extras.getInt(EXTRAS_FRAMES_PER_PACKET));
+        if (extras.containsKey(EXTRAS_TRUST_STORE)) { mTrustStore = extras.getString(EXTRAS_TRUST_STORE); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_TRUST_STORE_PASSWORD)) { mTrustStorePassword = extras.getString(EXTRAS_TRUST_STORE_PASSWORD); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_TRUST_STORE_FORMAT)) { mTrustStoreFormat = extras.getString(EXTRAS_TRUST_STORE_FORMAT); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_HALF_DUPLEX)) mAudioBuilder.setHalfDuplexEnabled(extras.getInt(EXTRAS_TRANSMIT_MODE) == Constants.TRANSMIT_PUSH_TO_TALK && extras.getBoolean(EXTRAS_HALF_DUPLEX));
+        if (extras.containsKey(EXTRAS_LOCAL_MUTE_HISTORY)) { mLocalMuteHistory = extras.getIntegerArrayList(EXTRAS_LOCAL_MUTE_HISTORY); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_LOCAL_IGNORE_HISTORY)) { mLocalIgnoreHistory = extras.getIntegerArrayList(EXTRAS_LOCAL_IGNORE_HISTORY); reconnectNeeded = true; }
+        if (extras.containsKey(EXTRAS_ENABLE_PREPROCESSOR)) mAudioBuilder.setPreprocessorEnabled(extras.getBoolean(EXTRAS_ENABLE_PREPROCESSOR));
+        if (extras.containsKey(EXTRAS_ECHO_CANCELLATION_METHOD)) mAudioBuilder.setEchoCancellationMethod(extras.getString(EXTRAS_ECHO_CANCELLATION_METHOD));
+        if (mAudioHandler != null && mAudioHandler.isInitialized()) { createAudioHandler(); Log.i(TAG, "Audio subsystem reloaded."); }
         return reconnectNeeded;
     }
 
     @Override
     public void onBluetoothScoConnected() {
-        // After an SCO connection is established, audio is rerouted to be compatible with SCO.
         mAudioBuilder.setBluetoothEnabled(true);
-        if (mAudioHandler != null) {
-            try {
-                createAudioHandler();
-            } catch (AudioException e) {
-                e.printStackTrace();
-            }
-        }
+        if (mAudioHandler != null) { try { createAudioHandler(); } catch (AudioException e) { e.printStackTrace(); } }
     }
 
     @Override
     public void onBluetoothScoDisconnected() {
-        // Restore audio settings after disconnection.
         mAudioBuilder.setBluetoothEnabled(false);
-        if (mAudioHandler != null) {
-            try {
-                createAudioHandler();
-            } catch (AudioException e) {
-                e.printStackTrace();
-            }
-        }
+        if (mAudioHandler != null) { try { createAudioHandler(); } catch (AudioException e) { e.printStackTrace(); } }
     }
 
-    /**
-     * Exposes the current connection. The current connection is set once an attempt to connect to
-     * a server is made, and remains set until a subsequent connection. It remains available
-     * after disconnection to provide information regarding the terminated connection.
-     * @return The active {@link HumlaConnection}.
-     */
-    public HumlaConnection getConnection() {
-        return mConnection;
-    }
-
-    /**
-     * Returnes the current {@link AudioHandler}. An AudioHandler is instantiated upon connection
-     * to a server, and destroyed upon disconnection.
-     * @return the active AudioHandler, or null if there is no active connection.
-     */
+    public HumlaConnection getConnection() { return mConnection; }
     private AudioHandler getAudioHandler() throws NotSynchronizedException {
-        if (!isSynchronized())
-            throw new NotSynchronizedException();
-        if (mAudioHandler == null && mConnectionState == ConnectionState.CONNECTED)
-            throw new RuntimeException("Audio handler should always be instantiated while connected!");
+        if (!isSynchronized()) throw new NotSynchronizedException();
+        if (mAudioHandler == null && mConnectionState == ConnectionState.CONNECTED) throw new RuntimeException("Audio handler missing!");
         return mAudioHandler;
     }
-
-    /**
-     * Returns the current {@link ModelHandler}, containing the channel tree. A model handler is
-     * valid for the lifetime of a connection.
-     * @return the active ModelHandler, or null if there is no active connection.
-     */
     private ModelHandler getModelHandler() throws NotSynchronizedException {
-        if (!isSynchronized())
-            throw new NotSynchronizedException();
-        if (mModelHandler == null && mConnectionState == ConnectionState.CONNECTED)
-            throw new RuntimeException("Model handler should always be instantiated while connected!");
+        if (!isSynchronized()) throw new NotSynchronizedException();
+        if (mModelHandler == null && mConnectionState == ConnectionState.CONNECTED) throw new RuntimeException("Model handler missing!");
         return mModelHandler;
     }
-
-    /**
-     * Returns the bluetooth service provider, established after synchronization.
-     * @return The {@link BluetoothScoReceiver} attached to this service.
-     */
     private BluetoothScoReceiver getBluetoothReceiver() throws NotSynchronizedException {
-        if (!isSynchronized())
-            throw new NotSynchronizedException();
+        if (!isSynchronized()) throw new NotSynchronizedException();
         return mBluetoothReceiver;
     }
 
     @Override
-    public HumlaService.ConnectionState getConnectionState() {
-        return mConnectionState;
-    }
-
+    public HumlaService.ConnectionState getConnectionState() { return mConnectionState; }
     @Override
-    public HumlaException getConnectionError() {
-        HumlaConnection connection = getConnection();
-        return connection != null ? connection.getError() : null;
-    }
-
+    public HumlaException getConnectionError() { HumlaConnection c = getConnection(); return c != null ? c.getError() : null; }
     @Override
-    public boolean isReconnecting() {
-        return mReconnecting;
-    }
-
+    public boolean isReconnecting() { return mReconnecting; }
     @Override
-    public void cancelReconnect() {
-        setReconnecting(false);
-    }
-
+    public void cancelReconnect() { setReconnecting(false); }
     @Override
-    public Server getTargetServer() {
-        return mServer;
-    }
-
+    public Server getTargetServer() { return mServer; }
     @Override
     public IHumlaSession HumlaSession() throws HumlaDisconnectedException {
-        if (mConnectionState != ConnectionState.CONNECTED) {
-            throw new HumlaDisconnectedException();
-        }
+        if (mConnectionState != ConnectionState.CONNECTED) throw new HumlaDisconnectedException();
         return this;
     }
-
     @Override
-    public long getTCPLatency() {
-        try {
-            return getConnection().getTCPLatency();
-        } catch (NotConnectedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public long getTCPLatency() { try { return getConnection().getTCPLatency(); } catch (NotConnectedException e) { throw new IllegalStateException(e); } }
     @Override
-    public long getUDPLatency() {
-        try {
-            return getConnection().getUDPLatency();
-        } catch (NotConnectedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public long getUDPLatency() { try { return getConnection().getUDPLatency(); } catch (NotConnectedException e) { throw new IllegalStateException(e); } }
     @Override
-    public int getMaxBandwidth() {
-        try {
-            return getConnection().getMaxBandwidth();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public int getMaxBandwidth() { try { return getConnection().getMaxBandwidth(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public int getCurrentBandwidth() {
-        try {
-            return getAudioHandler().getCurrentBandwidth();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public int getCurrentBandwidth() { try { return getAudioHandler().getCurrentBandwidth(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public int getServerVersion() {
-        try {
-            return getConnection().getServerVersion();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public int getServerVersion() { try { return getConnection().getServerVersion(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public String getServerRelease() {
-        try {
-            return getConnection().getServerRelease();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public String getServerRelease() { try { return getConnection().getServerRelease(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public String getServerOSName() {
-        try {
-            return getConnection().getServerOSName();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public String getServerOSName() { try { return getConnection().getServerOSName(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public String getServerOSVersion() {
-        try {
-            return getConnection().getServerOSVersion();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public String getServerOSVersion() { try { return getConnection().getServerOSVersion(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public int getSessionId() {
-        try {
-            return getConnection().getSession();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public int getSessionId() { try { return getConnection().getSession(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public IUser getSessionUser() {
-        try {
-            return getModelHandler().getUser(getSessionId());
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public IUser getSessionUser() { try { return getModelHandler().getUser(getSessionId()); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public IChannel getSessionChannel() {
-        IUser user = getSessionUser();
-        if (user != null)
-            return user.getChannel();
-        throw new IllegalStateException("Session user should be set post-synchronization!");
-    }
-
+    public IChannel getSessionChannel() { IUser u = getSessionUser(); if (u != null) return u.getChannel(); throw new IllegalStateException("No session user!"); }
     @Override
-    public IUser getUser(int session) {
-        try {
-            return getModelHandler().getUser(session);
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public IUser getUser(int session) { try { return getModelHandler().getUser(session); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public IChannel getChannel(int id) {
-        try {
-            return getModelHandler().getChannel(id);
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public IChannel getChannel(int id) { try { return getModelHandler().getChannel(id); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public IChannel getRootChannel() {
-        return getChannel(0);
-    }
-
+    public IChannel getRootChannel() { return getChannel(0); }
     @Override
-    public int getPermissions() {
-        try {
-            return getModelHandler().getPermissions();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public int getPermissions() { try { return getModelHandler().getPermissions(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public int getTransmitMode() {
-        return mTransmitMode;
-    }
-
+    public int getTransmitMode() { return mTransmitMode; }
     @Override
-    public HumlaUDPMessageType getCodec() {
-        try {
-            return getConnection().getCodec();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public HumlaUDPMessageType getCodec() { try { return getConnection().getCodec(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public boolean usingBluetoothSco() {
-        try {
-            return getBluetoothReceiver().isBluetoothScoOn();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public boolean usingBluetoothSco() { try { return getBluetoothReceiver().isBluetoothScoOn(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public void enableBluetoothSco() {
-        try {
-            getBluetoothReceiver().startBluetoothSco();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public void enableBluetoothSco() { try { getBluetoothReceiver().startBluetoothSco(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public void disableBluetoothSco() {
-        try {
-            getBluetoothReceiver().stopBluetoothSco();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
+    public void disableBluetoothSco() { try { getBluetoothReceiver().stopBluetoothSco(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
     @Override
-    public boolean isTalking() {
-        return mToggleInputMode.isTalkingOn();
-    }
-
+    public boolean isTalking() { return mToggleInputMode.isTalkingOn(); }
     @Override
-    public void setTalkingState(boolean talking) {
-        mToggleInputMode.setTalkingOn(talking);
-    }
-
+    public void setTalkingState(boolean talking) { mToggleInputMode.setTalkingOn(talking); }
     @Override
-    public void joinChannel(int channel) {
-        moveUserToChannel(getSessionId(), channel);
-    }
-
+    public void joinChannel(int channel) { moveUserToChannel(getSessionId(), channel); }
     @Override
     public void moveUserToChannel(int session, int channel) {
         Mumble.UserState.Builder usb = Mumble.UserState.newBuilder();
-        usb.setSession(session);
-        usb.setChannelId(channel);
+        usb.setSession(session); usb.setChannelId(channel);
         getConnection().sendTCPMessage(usb.build(), HumlaTCPMessageType.UserState);
     }
-
     @Override
     public void createChannel(int parent, String name, String description, int position, boolean temporary) {
         Mumble.ChannelState.Builder csb = Mumble.ChannelState.newBuilder();
-        csb.setParent(parent);
-        csb.setName(name);
-        csb.setDescription(description);
-        csb.setPosition(position);
-        csb.setTemporary(temporary);
+        csb.setParent(parent); csb.setName(name); csb.setDescription(description); csb.setPosition(position); csb.setTemporary(temporary);
         getConnection().sendTCPMessage(csb.build(), HumlaTCPMessageType.ChannelState);
     }
-
     @Override
-    public void sendAccessTokens(final List<String> tokens) {
-        getConnection().sendAccessTokens(tokens);
-    }
-
+    public void sendAccessTokens(final List<String> tokens) { getConnection().sendAccessTokens(tokens); }
     @Override
-    public void requestBanList() {
-        throw new UnsupportedOperationException("Not yet implemented"); // TODO
-    }
-
+    public void requestBanList() { throw new UnsupportedOperationException("Not yet implemented"); }
     @Override
-    public void requestUserList() {
-        throw new UnsupportedOperationException("Not yet implemented"); // TODO
-    }
-
+    public void requestUserList() { throw new UnsupportedOperationException("Not yet implemented"); }
     @Override
     public void requestPermissions(int channel) {
         Mumble.PermissionQuery.Builder pqb = Mumble.PermissionQuery.newBuilder();
         pqb.setChannelId(channel);
         getConnection().sendTCPMessage(pqb.build(), HumlaTCPMessageType.PermissionQuery);
     }
-
     @Override
     public void requestComment(int session) {
         Mumble.RequestBlob.Builder rbb = Mumble.RequestBlob.newBuilder();
         rbb.addSessionComment(session);
         getConnection().sendTCPMessage(rbb.build(), HumlaTCPMessageType.RequestBlob);
     }
-
     @Override
     public void requestAvatar(int session) {
         Mumble.RequestBlob.Builder rbb = Mumble.RequestBlob.newBuilder();
         rbb.addSessionTexture(session);
         getConnection().sendTCPMessage(rbb.build(), HumlaTCPMessageType.RequestBlob);
     }
-
     @Override
     public void requestChannelDescription(int channel) {
         Mumble.RequestBlob.Builder rbb = Mumble.RequestBlob.newBuilder();
         rbb.addChannelDescription(channel);
         getConnection().sendTCPMessage(rbb.build(), HumlaTCPMessageType.RequestBlob);
     }
-
     @Override
     public void registerUser(int session) {
         Mumble.UserState.Builder usb = Mumble.UserState.newBuilder();
-        usb.setSession(session);
-        usb.setUserId(0);
+        usb.setSession(session); usb.setUserId(0);
         getConnection().sendTCPMessage(usb.build(), HumlaTCPMessageType.UserState);
     }
-
     @Override
     public void kickBanUser(int session, String reason, boolean ban) {
         Mumble.UserRemove.Builder urb = Mumble.UserRemove.newBuilder();
-        urb.setSession(session);
-        urb.setReason(reason);
-        urb.setBan(ban);
+        urb.setSession(session); urb.setReason(reason); urb.setBan(ban);
         getConnection().sendTCPMessage(urb.build(), HumlaTCPMessageType.UserRemove);
     }
-
     @Override
     public Message sendUserTextMessage(int session, String message) {
         try {
-            if (!isSynchronized())
-                throw new NotSynchronizedException();
-
+            if (!isSynchronized()) throw new NotSynchronizedException();
             Mumble.TextMessage.Builder tmb = Mumble.TextMessage.newBuilder();
-            tmb.addSession(session);
-            tmb.setMessage(message);
+            tmb.addSession(session); tmb.setMessage(message);
             getConnection().sendTCPMessage(tmb.build(), HumlaTCPMessageType.TextMessage);
-
             User self = getModelHandler().getUser(getSessionId());
             User user = getModelHandler().getUser(session);
-            List<User> users = new ArrayList<User>(1);
-            users.add(user);
-            return new Message(getSessionId(), self.getName(), new ArrayList<Channel>(0), new ArrayList<Channel>(0), users, message);
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
+            List<User> users = new ArrayList<>(1); users.add(user);
+            return new Message(getSessionId(), self.getName(), new ArrayList<>(0), new ArrayList<>(0), users, message);
+        } catch (NotSynchronizedException e) { throw new IllegalStateException(e); }
     }
-
     @Override
     public Message sendChannelTextMessage(int channel, String message, boolean tree) {
         try {
-            if (!isSynchronized())
-                throw new NotSynchronizedException();
-
+            if (!isSynchronized()) throw new NotSynchronizedException();
             Mumble.TextMessage.Builder tmb = Mumble.TextMessage.newBuilder();
-            if (tree) tmb.addTreeId(channel);
-            else tmb.addChannelId(channel);
+            if (tree) tmb.addTreeId(channel); else tmb.addChannelId(channel);
             tmb.setMessage(message);
             getConnection().sendTCPMessage(tmb.build(), HumlaTCPMessageType.TextMessage);
-
             User self = getModelHandler().getUser(getSessionId());
             Channel targetChannel = getModelHandler().getChannel(channel);
-            List<Channel> targetChannels = new ArrayList<Channel>();
-            targetChannels.add(targetChannel);
-            return new Message(getSessionId(), self.getName(), targetChannels, tree ? targetChannels : new ArrayList<Channel>(0), new ArrayList<User>(0), message);
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
+            List<Channel> targetChannels = new ArrayList<>(); targetChannels.add(targetChannel);
+            return new Message(getSessionId(), self.getName(), targetChannels, tree ? targetChannels : new ArrayList<>(0), new ArrayList<>(0), message);
+        } catch (NotSynchronizedException e) { throw new IllegalStateException(e); }
     }
-
     @Override
     public void setUserComment(int session, String comment) {
         Mumble.UserState.Builder usb = Mumble.UserState.newBuilder();
-        usb.setSession(session);
-        usb.setComment(comment);
+        usb.setSession(session); usb.setComment(comment);
         getConnection().sendTCPMessage(usb.build(), HumlaTCPMessageType.UserState);
     }
-
     @Override
     public void setPrioritySpeaker(int session, boolean priority) {
         Mumble.UserState.Builder usb = Mumble.UserState.newBuilder();
-        usb.setSession(session);
-        usb.setPrioritySpeaker(priority);
+        usb.setSession(session); usb.setPrioritySpeaker(priority);
         getConnection().sendTCPMessage(usb.build(), HumlaTCPMessageType.UserState);
     }
-
     @Override
     public void removeChannel(int channel) {
         Mumble.ChannelRemove.Builder crb = Mumble.ChannelRemove.newBuilder();
         crb.setChannelId(channel);
         getConnection().sendTCPMessage(crb.build(), HumlaTCPMessageType.ChannelRemove);
     }
-
     @Override
     public void setMuteDeafState(int session, boolean mute, boolean deaf) {
         Mumble.UserState.Builder usb = Mumble.UserState.newBuilder();
-        usb.setSession(session);
-        usb.setMute(mute);
-        usb.setDeaf(deaf);
+        usb.setSession(session); usb.setMute(mute); usb.setDeaf(deaf);
         if (!mute) usb.setSuppress(false);
         getConnection().sendTCPMessage(usb.build(), HumlaTCPMessageType.UserState);
     }
-
     @Override
     public void setSelfMuteDeafState(boolean mute, boolean deaf) {
         Mumble.UserState.Builder usb = Mumble.UserState.newBuilder();
-        usb.setSelfMute(mute);
-        usb.setSelfDeaf(deaf);
+        usb.setSelfMute(mute); usb.setSelfDeaf(deaf);
         getConnection().sendTCPMessage(usb.build(), HumlaTCPMessageType.UserState);
     }
 
-    public void registerObserver(IHumlaObserver observer) {
-        mCallbacks.registerObserver(observer);
-    }
-
-    public void unregisterObserver(IHumlaObserver observer) {
-        mCallbacks.unregisterObserver(observer);
-    }
+    public void registerObserver(IHumlaObserver observer) { mCallbacks.registerObserver(observer); }
+    public void unregisterObserver(IHumlaObserver observer) { mCallbacks.unregisterObserver(observer); }
 
     @Override
-    public boolean isConnected() {
-        return mConnectionState == ConnectionState.CONNECTED;
-    }
-
+    public boolean isConnected() { return mConnectionState == ConnectionState.CONNECTED; }
     @Override
     public void linkChannels(IChannel channelA, IChannel channelB) {
         Mumble.ChannelState.Builder csb = Mumble.ChannelState.newBuilder();
-        csb.setChannelId(channelA.getId());
-        csb.addLinksAdd(channelB.getId());
+        csb.setChannelId(channelA.getId()); csb.addLinksAdd(channelB.getId());
         getConnection().sendTCPMessage(csb.build(), HumlaTCPMessageType.ChannelState);
     }
-
     @Override
     public void unlinkChannels(IChannel channelA, IChannel channelB) {
         Mumble.ChannelState.Builder csb = Mumble.ChannelState.newBuilder();
-        csb.setChannelId(channelA.getId());
-        csb.addLinksRemove(channelB.getId());
+        csb.setChannelId(channelA.getId()); csb.addLinksRemove(channelB.getId());
         getConnection().sendTCPMessage(csb.build(), HumlaTCPMessageType.ChannelState);
     }
-
     @Override
     public void unlinkAllChannels(IChannel channel) {
         Mumble.ChannelState.Builder csb = Mumble.ChannelState.newBuilder();
         csb.setChannelId(channel.getId());
-        for (IChannel linked : channel.getLinks()) {
-            csb.addLinksRemove(linked.getId());
-        }
+        for (IChannel linked : channel.getLinks()) csb.addLinksRemove(linked.getId());
         getConnection().sendTCPMessage(csb.build(), HumlaTCPMessageType.ChannelState);
     }
-
     @Override
     public byte registerWhisperTarget(final WhisperTarget target) {
         byte id = mWhisperTargetList.append(target);
-        if (id < 0) {
-            return -1;
-        }
-
+        if (id < 0) return -1;
         Mumble.VoiceTarget.Target voiceTarget = target.createTarget();
         Mumble.VoiceTarget.Builder vtb = Mumble.VoiceTarget.newBuilder();
-        vtb.setId(id);
-        vtb.addTargets(voiceTarget);
+        vtb.setId(id); vtb.addTargets(voiceTarget);
         getConnection().sendTCPMessage(vtb.build(), HumlaTCPMessageType.VoiceTarget);
         return id;
     }
-
     @Override
-    public void unregisterWhisperTarget(byte targetId) {
-        mWhisperTargetList.free(targetId);
-    }
-
+    public void unregisterWhisperTarget(byte targetId) { mWhisperTargetList.free(targetId); }
     @Override
     public void setVoiceTargetId(byte targetId) {
-        if ((targetId & ~0x1F) > 0) {
-            throw new IllegalArgumentException("Target ID must be at most 5 bits.");
-        }
+        if ((targetId & ~0x1F) > 0) throw new IllegalArgumentException("Target ID must be at most 5 bits.");
         mVoiceTargetId = targetId;
         mAudioHandler.setVoiceTargetId(targetId);
         mCallbacks.onVoiceTargetChanged(VoiceTargetMode.fromId(targetId));
     }
-
     @Override
-    public byte getVoiceTargetId() {
-        return mVoiceTargetId;
-    }
-
+    public byte getVoiceTargetId() { return mVoiceTargetId; }
     @Override
-    public VoiceTargetMode getVoiceTargetMode() {
-        return VoiceTargetMode.fromId(mVoiceTargetId);
-    }
-
+    public VoiceTargetMode getVoiceTargetMode() { return VoiceTargetMode.fromId(mVoiceTargetId); }
     @Override
     public WhisperTarget getWhisperTarget() {
-        if (VoiceTargetMode.fromId(mVoiceTargetId) == VoiceTargetMode.WHISPER) {
-            return mWhisperTargetList.get(mVoiceTargetId);
-        }
+        if (VoiceTargetMode.fromId(mVoiceTargetId) == VoiceTargetMode.WHISPER) return mWhisperTargetList.get(mVoiceTargetId);
         return null;
     }
-
     @Override
-    public ServerSettings getServerSettings() {
-        try {
-            return getModelHandler().getServerSettings();
-        } catch (NotSynchronizedException e) {
-            throw new IllegalStateException(e);
-        }
-    }
+    public ServerSettings getServerSettings() { try { return getModelHandler().getServerSettings(); } catch (NotSynchronizedException e) { throw new IllegalStateException(e); } }
 
-    /**
-     * The current connection state of the service.
-     */
-    public enum ConnectionState {
-        /**
-         * The default state of Humla, before connection to a server and after graceful/expected
-         * disconnection from a server.
-         */
-        DISCONNECTED,
-        /**
-         * A connection to the server is currently in progress.
-         */
-        CONNECTING,
-        /**
-         * Humla has received all data necessary for normal protocol communication with the server.
-         */
-        CONNECTED,
-        /**
-         * The connection was lost due to either a kick/ban or socket I/O error.
-         * Humla may be reconnecting in this state.
-         * @see #isReconnecting()
-         * @see #cancelReconnect()
-         */
-        CONNECTION_LOST
-    }
+    public enum ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, CONNECTION_LOST }
 
     public static class HumlaBinder extends Binder {
         private final IHumlaService mService;
-
-        private HumlaBinder(IHumlaService service) {
-            mService = service;
-        }
-
-        public IHumlaService getService() {
-            return mService;
-        }
+        private HumlaBinder(IHumlaService service) { mService = service; }
+        public IHumlaService getService() { return mService; }
     }
 }
