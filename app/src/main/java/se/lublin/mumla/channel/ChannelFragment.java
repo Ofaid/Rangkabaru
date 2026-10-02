@@ -55,6 +55,7 @@ import se.lublin.humla.util.VoiceTargetMode;
 import se.lublin.mumla.R;
 import se.lublin.mumla.Settings;
 import se.lublin.mumla.util.HumlaServiceFragment;
+import se.lublin.mumla.widget.AudioLevelView; // IMPORT AUDIO LEVEL VIEW
 
 /**
  * Class to encapsulate both a ChannelListFragment and ChannelChatFragment.
@@ -67,61 +68,73 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     private PagerTabStrip mTabStrip;
     private Button mTalkButton;
     private View mTalkView;
+    
+    // TAMBAHAN: Deklarasi AudioLevelView
+    private AudioLevelView mAudioLevelBar;
 
     private View mTargetPanel;
     private ImageView mTargetPanelCancel;
     private TextView mTargetPanelText;
 
     private ChatTarget mChatTarget;
-    /** Chat target listeners, notified when the chat target is changed. */
-    private List<OnChatTargetSelectedListener> mChatTargetListeners = new ArrayList<OnChatTargetSelectedListener>();
-
-    /** True iff the talk button has been hidden (e.g. when muted) */
+    private List<OnChatTargetSelectedListener> mChatTargetListeners = new ArrayList<>();
     private boolean mTalkButtonHidden;
 
-    private HumlaObserver mObserver = new HumlaObserver() {
+    private final HumlaObserver mObserver = new HumlaObserver() {
         @Override
         public void onUserTalkStateUpdated(IUser user) {
-            if (getService() == null || !getService().isConnected()) {
-                return;
-            }
+            if (getService() == null || !getService().isConnected()) return;
+            
             int selfSession;
             try {
                 selfSession = getService().HumlaSession().getSessionId();
-            } catch (HumlaDisconnectedException|IllegalStateException e) {
+            } catch (HumlaDisconnectedException | IllegalStateException e) {
                 Log.d(TAG, "exception in onUserTalkStateUpdated: " + e);
                 return;
             }
+            
             if (user != null && user.getSession() == selfSession) {
-                // Manually set button selection colour when we receive a talk state update.
-                // This allows representation of talk state when using hot corners and PTT toggle.
                 switch (user.getTalkState()) {
-                case TALKING:
-                case SHOUTING:
-                case WHISPERING:
-                    mTalkButton.setPressed(true);
-                    break;
-                case PASSIVE:
-                    mTalkButton.setPressed(false);
-                    break;
+                    case TALKING:
+                    case SHOUTING:
+                    case WHISPERING:
+                        mTalkButton.setPressed(true);
+                        break;
+                    case PASSIVE:
+                        mTalkButton.setPressed(false);
+                        // Reset bar saat diam
+                        if (mAudioLevelBar != null) mAudioLevelBar.reset();
+                        break;
                 }
+            }
+        }
+
+        // TAMBAHAN: Listener untuk level suara input (mic kamu)
+        @Override
+        public void onAudioInputLevelUpdated(float level) {
+            if (mAudioLevelBar != null && mTalkButton.isPressed()) {
+                mAudioLevelBar.setLevel(level);
+            }
+        }
+
+        // TAMBAHAN: Listener untuk level suara output (suara teman)
+        @Override
+        public void onAudioOutputLevelUpdated(float level) {
+            if (mAudioLevelBar != null && !mTalkButton.isPressed()) {
+                mAudioLevelBar.setLevel(level);
             }
         }
 
         @Override
         public void onUserStateUpdated(IUser user) {
-            if (getService() == null || !getService().isConnected()) {
-                return;
-            }
-            int selfSession;
+            if (getService() == null || !getService().isConnected()) return;
             try {
-                selfSession = getService().HumlaSession().getSessionId();
+                int selfSession = getService().HumlaSession().getSessionId();
+                if (user != null && user.getSession() == selfSession) {
+                    configureInput();
+                }
             } catch (IllegalStateException e) {
                 Log.d(TAG, "exception in onUserStateUpdated: " + e);
-                return;
-            }
-            if (user != null && user.getSession() == selfSession) {
-                configureInput();
             }
         }
 
@@ -140,10 +153,12 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_channel, container, false);
-        mViewPager = (ViewPager) view.findViewById(R.id.channel_view_pager);
-        mTabStrip = (PagerTabStrip) view.findViewById(R.id.channel_tab_strip);
-        if(mTabStrip != null) {
-            int[] attrs = new int[] { android.R.attr.colorPrimary, android.R.attr.textColorPrimaryInverse };
+        
+        mViewPager = view.findViewById(R.id.channel_view_pager);
+        mTabStrip = view.findViewById(R.id.channel_tab_strip);
+        
+        if (mTabStrip != null) {
+            int[] attrs = new int[]{android.R.attr.colorPrimary, android.R.attr.textColorPrimaryInverse};
             TypedArray a = getActivity().obtainStyledAttributes(attrs);
             int titleStripBackground = a.getColor(0, -1);
             int titleStripColor = a.getColor(1, -1);
@@ -155,44 +170,41 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
             mTabStrip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         }
 
+        // TAMBAHAN: Inisialisasi AudioLevelView dari layout
+        mAudioLevelBar = view.findViewById(R.id.audio_level_bar);
+        if (mAudioLevelBar != null) {
+            mAudioLevelBar.setVisibility(View.VISIBLE);
+        }
+
         mTalkView = view.findViewById(R.id.pushtotalk_view);
-        mTalkButton = (Button) view.findViewById(R.id.pushtotalk);
-        mTalkButton.setOnTouchListener(new View.OnTouchListener() {
-
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                switch (event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        if (getService() != null) {
-                            getService().onTalkKeyDown();
-                        }
-                        break;
-                    case MotionEvent.ACTION_UP:
-                        if (getService() != null) {
-                            getService().onTalkKeyUp();
-                        }
-                        break;
-                }
-                return true;
+        mTalkButton = view.findViewById(R.id.pushtotalk);
+        
+        mTalkButton.setOnTouchListener((v, event) -> {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    if (getService() != null) getService().onTalkKeyDown();
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (getService() != null) getService().onTalkKeyUp();
+                    break;
             }
+            return true;
         });
+
         mTargetPanel = view.findViewById(R.id.target_panel);
-        mTargetPanelCancel = (ImageView) view.findViewById(R.id.target_panel_cancel);
-        mTargetPanelCancel.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (getService() == null || !getService().isConnected())
-                    return;
-
-                IHumlaSession session = getService().HumlaSession();
-                if (session.getVoiceTargetMode() == VoiceTargetMode.WHISPER) {
-                    byte target = session.getVoiceTargetId();
-                    session.setVoiceTargetId((byte) 0);
-                    session.unregisterWhisperTarget(target);
-                }
+        mTargetPanelCancel = view.findViewById(R.id.target_panel_cancel);
+        mTargetPanelCancel.setOnClickListener(v -> {
+            if (getService() == null || !getService().isConnected()) return;
+            IHumlaSession session = getService().HumlaSession();
+            if (session.getVoiceTargetMode() == VoiceTargetMode.WHISPER) {
+                byte target = session.getVoiceTargetId();
+                session.setVoiceTargetId((byte) 0);
+                session.unregisterWhisperTarget(target);
             }
         });
-        mTargetPanelText = (TextView) view.findViewById(R.id.target_panel_warning);
+        
+        mTargetPanelText = view.findViewById(R.id.target_panel_warning);
         configureInput();
         return view;
     }
@@ -200,20 +212,19 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     @Override
     public void onActivityCreated(Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
-
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(getActivity());
         preferences.registerOnSharedPreferenceChangeListener(this);
 
-        if(mViewPager != null) { // Phone
+        if (mViewPager != null) {
             ChannelFragmentPagerAdapter pagerAdapter = new ChannelFragmentPagerAdapter(getChildFragmentManager());
             mViewPager.setAdapter(pagerAdapter);
-        } else { // Tablet
+        } else {
             ChannelListFragment listFragment = new ChannelListFragment();
             Bundle listArgs = new Bundle();
             listArgs.putBoolean("pinned", isShowingPinnedChannels());
             listFragment.setArguments(listArgs);
+            
             ChannelChatFragment chatFragment = new ChannelChatFragment();
-
             getChildFragmentManager().beginTransaction()
                     .replace(R.id.list_fragment, listFragment)
                     .replace(R.id.chat_fragment, chatFragment)
@@ -248,11 +259,11 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     public void onPause() {
         super.onPause();
         if (getService() != null && getService().isConnected() &&
-            !Settings.getInstance(getActivity()).isPushToTalkToggle()) {
-            // XXX: This ensures that push to talk is disabled when we pause.
-            // We don't want to leave the talk state active if the fragment is paused while pressed.
+                !Settings.getInstance(getActivity()).isPushToTalkToggle()) {
             getService().HumlaSession().setTalkingState(false);
         }
+        // Reset bar saat pause biar tidak nyangkut
+        if (mAudioLevelBar != null) mAudioLevelBar.reset();
     }
 
     @Override
@@ -277,10 +288,7 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     }
 
     private void configureTargetPanel() {
-        if (getService() == null || !getService().isConnected()) {
-            return;
-        }
-
+        if (getService() == null || !getService().isConnected()) return;
         IHumlaSession session = getService().HumlaSession();
         VoiceTargetMode mode = session.getVoiceTargetMode();
         if (mode == VoiceTargetMode.WHISPER) {
@@ -292,20 +300,12 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
         }
     }
 
-    /**
-     * @return true if the channel fragment is set to display only the user's pinned channels.
-     */
     private boolean isShowingPinnedChannels() {
-        return getArguments() != null &&
-               getArguments().getBoolean("pinned");
+        return getArguments() != null && getArguments().getBoolean("pinned");
     }
 
-    /**
-     * Configures the fragment in accordance with the user's interface preferences.
-     */
     private void configureInput() {
         Settings settings = Settings.getInstance(getActivity());
-
         ViewGroup.LayoutParams params = mTalkView.getLayoutParams();
         params.height = settings.getPTTButtonHeight();
         mTalkButton.setLayoutParams(params);
@@ -315,15 +315,16 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
             IUser self = null;
             try {
                 self = getService().HumlaSession().getSessionUser();
-            } catch (HumlaDisconnectedException|IllegalStateException e) {
+            } catch (HumlaDisconnectedException | IllegalStateException e) {
                 Log.d(TAG, "exception in configureInput: " + e);
             }
             muted = self == null || self.isMuted() || self.isSuppressed() || self.isSelfMuted();
         }
-        boolean showPttButton =
-                !muted &&
+        
+        boolean showPttButton = !muted &&
                 settings.isPushToTalkButtonShown() &&
                 settings.getInputMethod().equals(Settings.ARRAY_INPUT_METHOD_PTT);
+                
         setTalkButtonHidden(!showPttButton);
     }
 
@@ -334,22 +335,22 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
 
     @Override
     public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-        if(Settings.PREF_INPUT_METHOD.equals(key)
-            || Settings.PREF_PUSH_BUTTON_HIDE_KEY.equals(key)
-            || Settings.PREF_PTT_BUTTON_HEIGHT.equals(key))
+        if (Settings.PREF_INPUT_METHOD.equals(key)
+                || Settings.PREF_PUSH_BUTTON_HIDE_KEY.equals(key)
+                || Settings.PREF_PTT_BUTTON_HEIGHT.equals(key)) {
             configureInput();
+        }
     }
 
     @Override
-    public ChatTarget getChatTarget() {
-        return mChatTarget;
-    }
+    public ChatTarget getChatTarget() { return mChatTarget; }
 
     @Override
     public void setChatTarget(ChatTarget target) {
         mChatTarget = target;
-        for(OnChatTargetSelectedListener listener : mChatTargetListeners)
+        for (OnChatTargetSelectedListener listener : mChatTargetListeners) {
             listener.onChatTargetSelected(target);
+        }
     }
 
     @Override
@@ -363,14 +364,11 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
     }
 
     private class ChannelFragmentPagerAdapter extends FragmentPagerAdapter {
-
-        public ChannelFragmentPagerAdapter(FragmentManager fm) {
-            super(fm);
-        }
+        public ChannelFragmentPagerAdapter(FragmentManager fm) { super(fm); }
 
         @Override
         public Fragment getItem(int i) {
-            Fragment fragment = null;
+            Fragment fragment;
             Bundle args = new Bundle();
             switch (i) {
                 case 0:
@@ -380,6 +378,8 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
                 case 1:
                     fragment = new ChannelChatFragment();
                     break;
+                default:
+                    fragment = new ChannelListFragment();
             }
             fragment.setArguments(args);
             return fragment;
@@ -388,18 +388,13 @@ public class ChannelFragment extends HumlaServiceFragment implements SharedPrefe
         @Override
         public CharSequence getPageTitle(int position) {
             switch (position) {
-                case 0:
-                    return getString(R.string.channel).toUpperCase();
-                case 1:
-                    return getString(R.string.chat).toUpperCase();
-                default:
-                    return null;
+                case 0: return getString(R.string.channel).toUpperCase();
+                case 1: return getString(R.string.chat).toUpperCase();
+                default: return null;
             }
         }
 
         @Override
-        public int getCount() {
-            return 2;
-        }
+        public int getCount() { return 2; }
     }
 }
