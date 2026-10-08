@@ -11,9 +11,8 @@ public class NeonVisualizerView extends View {
 
     private final Paint neonPaint = new Paint();
     private float mLevel = 0f;
-    private float mSensitivitas = 1.0f;        // ← Dikurangi dari 1.8 → 1.0
-    private float mLevelTertinggi = 0f;
-    private static final float LENYAP_CEPAT = 0.06f;  // ← Diperlambat dari 0.35 → 0.06
+    private float mSensitivitas = 1.1f;
+    private static final float LENYAP_CEPAT = 0.60f;
 
     public NeonVisualizerView(Context context) {
         super(context);
@@ -38,10 +37,9 @@ public class NeonVisualizerView extends View {
     public void setAudioLevel(float level) {
         float target = Math.max(0f, Math.min(1f, level * mSensitivitas));
         
-        if (target > mLevel) {
+        if (target >= mLevel) {
             mLevel = target;
         } else {
-            // Menghilang pelan-pelan
             mLevel = Math.max(0f, mLevel - LENYAP_CEPAT);
         }
         invalidate();
