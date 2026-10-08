@@ -173,46 +173,32 @@ public class ChannelListFragment extends HumlaServiceFragment
         
         
 // Penerima Monitor (suara teman) - Versi Halus & Bisa Balik Nol
+// Di dalam onViewCreated, ganti receiver monitor dengan ini:
 mPenerimaMonitor = new BroadcastReceiver() {
-    private float currentLevel = 0f; // Simpan level terakhir untuk smoothing
+    private float currentLevel = 0f; // Simpan level saat ini
     
     @Override
     public void onReceive(Context context, Intent intent) {
-        // Cek dua kemungkinan action (ori OFAID & modif ST12)
-        if ("ofaid.ahmad.ptt.LEVEL_MONITOR".equals(intent.getAction()) || 
-            "st12.ACTION_MONITOR_BYTES".equals(intent.getAction())) {
-            
-            float targetLevel = 0f;
-            
-            // Jika data datang sebagai float (ORI OFAID)
-            if (intent.hasExtra("level")) {
-                targetLevel = intent.getFloatExtra("level", 0f);
-                targetLevel = Math.min(targetLevel * 5f, 1f); // Boost sensitivitas ori
-            } 
-            // Jika data datang sebagai byte array (MODIF ST12)
-            else if (intent.hasExtra("bytes")) {
-                byte[] data = intent.getByteArrayExtra("bytes");
-                if (data != null && data.length > 0) {
-                    targetLevel = Math.abs(data[0]) / 127f;
+        if ("st12.ACTION_MONITOR_BYTES".equals(intent.getAction())) {
+            byte[] data = intent.getByteArrayExtra("bytes");
+            if (data != null && mVisualMonitor != null) {
+                // Ambil nilai pertama sebagai representasi level
+                float targetLevel = Math.abs(data[0]) / 127f;
+                
+                // Update level dengan smoothing sederhana
+                // Jika ada data baru, naikkan cepat. Jika tidak, turunkan perlahan
+                if (targetLevel > currentLevel) {
+                    currentLevel = targetLevel; // Naik instan (attack)
+                } else {
+                    currentLevel *= 0.85f; // Turun perlahan (decay)
                 }
-            }
-            
-            // LOGIKA SMOOTHING AGAR MULUS & BISA BALIK NOL
-            if (targetLevel > currentLevel) {
-                currentLevel = targetLevel; // Naik cepat saat ada suara
-            } else {
-                currentLevel *= 0.85f; // Turun perlahan saat hening (Decay)
-            }
-            
-            // Konversi kembali ke byte[32] untuk VisualizerView
-            byte[] data = new byte[32];
-            byte nilai = (byte)(currentLevel * 127);
-            for (int i = 0; i < 32; i++) {
-                data[i] = nilai;
-            }
-            
-            if (mVisualMonitor != null) {
-                mVisualMonitor.updateVisualizer(data);
+                
+                // Buat ulang byte array 32 elemen berdasarkan level yang sudah di-smooth
+                byte[] smoothData = new byte[32];
+                byte val = (byte)(currentLevel * 127);
+                java.util.Arrays.fill(smoothData, val);
+                
+                mVisualMonitor.updateVisualizer(smoothData);
             }
         }
     }
