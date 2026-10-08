@@ -27,12 +27,18 @@ import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
-import android.media.AudioManager;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.text.InputType;
+import android.util.AttributeSet;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.Menu;
@@ -115,9 +121,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         ServerEditFragment.ServerEditListener {
     private static final String TAG = MumlaActivity.class.getName();
 
-    /**
-     * If specified, the provided integer drawer fragment ID is shown when the activity is created.
-     */
     public static final String EXTRA_DRAWER_FRAGMENT = "drawer_fragment";
 
     private IMumlaService mService;
@@ -127,6 +130,12 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
     private ActionBarDrawerToggle mDrawerToggle;
     private DrawerLayout mDrawerLayout;
     private DrawerAdapter mDrawerAdapter;
+    
+    // Variabel untuk Visualizer Audio
+    private SimpleVisualizer mVisualizer;
+    private AudioRecord mAudioRecord;
+    private Thread mRecordingThread;
+    private boolean mIsRecording = false;
 
     private static final int PERMISSIONS_REQUEST_RECORD_AUDIO = 1;
     private static final int PERMISSIONS_REQUEST_POST_NOTIFICATIONS = 2;
@@ -136,9 +145,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
     private AlertDialog mConnectingDialog;
     private AlertDialog mErrorDialog;
 
-    /**
-     * List of fragments to be notified about service state changes.
-     */
     private final List<HumlaServiceFragment> mServiceFragments = new ArrayList<HumlaServiceFragment>();
 
     private final ServiceConnection mConnection = new ServiceConnection() {
@@ -147,13 +153,12 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
             mService = ((MumlaService.MumlaBinder) service).getService();
             mService.setSuppressNotifications(true);
             mService.registerObserver(mObserver);
-            mService.clearChatNotifications(); // Clear chat notifications on resume.
+            mService.clearChatNotifications();
             mDrawerAdapter.notifyDataSetChanged();
 
             for (HumlaServiceFragment fragment : mServiceFragments)
                 fragment.setServiceBound(true);
 
-            // Re-show server list if we're showing a fragment that depends on the service.
             if (getSupportFragmentManager().findFragmentById(R.id.content_frame) instanceof HumlaServiceFragment &&
                     !mService.isConnected()) {
                 loadDrawerFragment(DrawerAdapter.ITEM_FAVOURITES);
@@ -175,10 +180,8 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
             } else {
                 loadDrawerFragment(DrawerAdapter.ITEM_SERVER);
             }
-
             mDrawerAdapter.notifyDataSetChanged();
             supportInvalidateOptionsMenu();
-
             updateConnectionState(getService());
         }
 
@@ -189,21 +192,17 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
 
         @Override
         public void onDisconnected(HumlaException e) {
-            // Re-show server list if we're showing a fragment that depends on the service.
             if (getSupportFragmentManager().findFragmentById(R.id.content_frame) instanceof HumlaServiceFragment) {
                 loadDrawerFragment(DrawerAdapter.ITEM_FAVOURITES);
             }
             mDrawerAdapter.notifyDataSetChanged();
             supportInvalidateOptionsMenu();
-
             updateConnectionState(getService());
         }
 
         @Override
         public void onTLSHandshakeFailed(X509Certificate[] chain) {
-            if (chain.length == 0) {
-                return;
-            }
+            if (chain.length == 0) return;
             final Server lastServer = getService().getTargetServer();
             try {
                 final X509Certificate x509 = chain[0];
@@ -231,7 +230,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
                         .setTitle(R.string.untrusted_certificate)
                         .setView(layout)
                         .setPositiveButton(R.string.allow, (dialog, which) -> {
-                            // Try to add to trust store
                             try {
                                 String alias = lastServer.getHost();
                                 KeyStore trustStore = MumlaTrustStore.getTrustStore(MumlaActivity.this);
@@ -263,12 +261,14 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         mSettings = Settings.getInstance(this);
-
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
+
+        // Inisialisasi Visualizer dari XML
+        mVisualizer = findViewById(R.id.audio_visualizer);
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -291,11 +291,10 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         });
 
         setStayAwake(mSettings.shouldStayAwake());
-
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         preferences.registerOnSharedPreferenceChangeListener(this);
 
-        mDatabase = new MumlaSQLiteDatabase(this); // TODO add support for cloud storage
+        mDatabase = new MumlaSQLiteDatabase(this);
         mDatabase.open();
 
         mDrawerLayout = findViewById(R.id.drawer_layout);
@@ -330,7 +329,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
             @Override
             public void onDrawerStateChanged(int newState) {
                 super.onDrawerStateChanged(newState);
-                // Prevent push to talk from getting stuck on when the drawer is opened.
                 if (getService() != null && getService().isConnected()) {
                     IHumlaSession session = getService().HumlaSession();
                     if (session.isTalking() && !mSettings.isPushToTalkToggle()) {
@@ -358,14 +356,11 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
             }
         }
 
-        // If we're given a Mumble URL to show, open up a server edit fragment.
         if (getIntent() != null &&
                 Intent.ACTION_VIEW.equals(getIntent().getAction())) {
             String url = getIntent().getDataString();
             try {
                 Server server = MumbleURLParser.parseURL(url);
-
-                // Open a dialog prompting the user to connect to the Mumble server.
                 DialogFragment fragment = ServerEditFragment.createServerEditDialog(
                         MumlaActivity.this, server, ServerEditFragment.Action.CONNECT_ACTION, true);
                 fragment.show(getSupportFragmentManager(), "url_edit");
@@ -379,13 +374,21 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
                 AudioManager.STREAM_VOICE_CALL : AudioManager.STREAM_MUSIC);
 
         if (savedInstanceState == null) {
-            // Got no instance bundle: this is run only on real app startup -- not when Android
-            // recreates the activity on configuration change, like screen rotation.
             if (mSettings.isFirstRun()) {
                 showFirstRunGuide();
             } else {
                 new StartupAction().execute(this);
             }
+        }
+
+        // Minta izin mic untuk visualizer
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.RECORD_AUDIO},
+                    PERMISSIONS_REQUEST_RECORD_AUDIO);
+        } else {
+            startAudioVisualization();
         }
     }
 
@@ -400,15 +403,17 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         super.onResume();
         Intent connectIntent = new Intent(this, MumlaService.class);
         bindService(connectIntent, mConnection, 0);
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startAudioVisualization();
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if (mErrorDialog != null)
-            mErrorDialog.dismiss();
-        if (mConnectingDialog != null)
-            mConnectingDialog.dismiss();
+        stopAudioVisualization();
+        if (mErrorDialog != null) mErrorDialog.dismiss();
+        if (mConnectingDialog != null) mConnectingDialog.dismiss();
 
         if (mService != null) {
             for (HumlaServiceFragment fragment : mServiceFragments) {
@@ -425,28 +430,85 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         preferences.unregisterOnSharedPreferenceChangeListener(this);
         mDatabase.close();
+        stopAudioVisualization();
         super.onDestroy();
     }
+
+    // --- FUNGSI AUDIO VISUALIZATION ---
+    private void startAudioVisualization() {
+        if (mIsRecording) return;
+        
+        int sampleRate = 16000;
+        int channelConfig = AudioFormat.CHANNEL_IN_MONO;
+        int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
+        
+        int minBuf = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat);
+        mAudioRecord = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, 
+                                      sampleRate, channelConfig, audioFormat, minBuf * 4);
+
+        if (mAudioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
+            Log.e(TAG, "AudioRecord initialization failed");
+            return;
+        }
+
+        mIsRecording = true;
+        mRecordingThread = new Thread(() -> {
+            mAudioRecord.startRecording();
+            short[] buffer = new short[minBuf];
+            
+            while (mIsRecording) {
+                int read = mAudioRecord.read(buffer, 0, buffer.length);
+                if (read > 0) {
+                    long sum = 0;
+                    for (int i = 0; i < read; i++) {
+                        sum += Math.abs(buffer[i]);
+                    }
+                    float average = sum / (float) read;
+                    // Normalisasi kasar (sesuaikan divisor 10000f jika terlalu sensitif/kurang sensitif)
+                    float normalized = Math.min(average / 10000f, 1.0f);
+                    
+                    runOnUiThread(() -> {
+                        if (mVisualizer != null) mVisualizer.updateAmplitude(normalized);
+                    });
+                }
+            }
+        });
+        mRecordingThread.start();
+    }
+
+    private void stopAudioVisualization() {
+        mIsRecording = false;
+        if (mRecordingThread != null) {
+            try {
+                mRecordingThread.join(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+        if (mAudioRecord != null) {
+            mAudioRecord.stop();
+            mAudioRecord.release();
+            mAudioRecord = null;
+        }
+    }
+    // ----------------------------------
 
     @Override
     public boolean onPrepareOptionsMenu(Menu menu) {
         MenuItem disconnectButton = menu.findItem(R.id.action_disconnect);
         disconnectButton.setVisible(mService != null && mService.isConnected());
-
         return super.onPrepareOptionsMenu(menu);
     }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
         getMenuInflater().inflate(R.menu.mumla, menu);
         return true;
     }
 
     @Override
     public boolean onOptionsItemSelected(@NotNull MenuItem item) {
-        if (mDrawerToggle.onOptionsItemSelected(item))
-            return true;
+        if (mDrawerToggle.onOptionsItemSelected(item)) return true;
         if (item.getItemId() == R.id.action_disconnect) {
             getService().disconnect();
             return true;
@@ -485,7 +547,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
     }
 
     private void showFirstRunGuide() {
-        // Prompt the user to generate a certificate.
         if (mSettings.isUsingCertificate()) {
             mSettings.setFirstRun(false);
             return;
@@ -511,9 +572,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
                 .show();
     }
 
-    /**
-     * Loads a fragment from the drawer.
-     */
     private void loadDrawerFragment(int fragmentId) {
         Class<? extends Fragment> fragmentClass = null;
         Bundle args = new Bundle();
@@ -589,12 +647,10 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         Server server = mServerPendingPerm;
         mServerPendingPerm = null;
 
-        // Check if we're already connected to a server; if so, inform user.
         if (mService != null && mService.isConnected()) {
             new MaterialAlertDialogBuilder(this)
                     .setMessage(R.string.reconnect_dialog_message)
                     .setPositiveButton(R.string.connect, (dialog, which) -> {
-                        // Register an observer to reconnect to the new server once disconnected.
                         mService.registerObserver(new HumlaObserver() {
                             @Override
                             public void onDisconnected(HumlaException e) {
@@ -645,6 +701,7 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         switch (requestCode) {
             case PERMISSIONS_REQUEST_RECORD_AUDIO:
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    startAudioVisualization();
                     connectToServerWithPerm();
                 } else {
                     Toast.makeText(MumlaActivity.this, getString(R.string.grant_perm_microphone),
@@ -654,7 +711,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
             case PERMISSIONS_REQUEST_POST_NOTIFICATIONS:
                 mPermPostNotificationsAsked = true;
                 if (grantResults[0] == PackageManager.PERMISSION_DENIED) {
-                    // This is inspired by https://stackoverflow.com/a/34612503
                     if (ActivityCompat.shouldShowRequestPermissionRationale(MumlaActivity.this,
                             Manifest.permission.POST_NOTIFICATIONS)) {
                         Toast.makeText(MumlaActivity.this,
@@ -721,14 +777,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         }
     }
 
-    /**
-     * Updates the activity to represent the connection state of the given service.
-     * Will show reconnecting dialog if reconnecting, dismiss otherwise, etc.
-     * Basically, this service will do catch-up if the activity wasn't bound to receive
-     * connection state updates.
-     *
-     * @param service A bound IHumlaService.
-     */
     private void updateConnectionState(IHumlaService service) {
         if (mConnectingDialog != null) {
             mConnectingDialog.dismiss();
@@ -739,8 +787,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
         switch (mService.getConnectionState()) {
             case CONNECTING:
                 Server server = service.getTargetServer();
-                // SRV lookup is done later, so we no longer show the port in the connection
-                // progress dialog (and only the configured hostname)
                 mConnectingDialog = new MaterialAlertDialogBuilder(this)
                         .setTitle(getString(R.string.connecting_to_server, server.getHost()) + (mSettings.isTorEnabled() ? " (Tor)" : ""))
                         .setView(R.layout.dialog_progress)
@@ -754,9 +800,7 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
                 mConnectingDialog.show();
                 break;
             case CONNECTION_LOST:
-                // Only bother the user if the error hasn't already been shown.
                 if (getService() != null && !getService().isErrorShown()) {
-                    // TODO? bail out if service gone -- it is happening!
                     if (getService() == null) {
                         break;
                     }
@@ -815,10 +859,6 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
                 break;
         }
     }
-
-    /*
-     * HERE BE IMPLEMENTATIONS
-     */
 
     @Override
     public IMumlaService getService() {
@@ -885,6 +925,51 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
             case CONNECT_ACTION:
                 connectToServer(server);
                 break;
+        }
+    }
+
+    // --- INNER CLASS UNTUK VISUALIZER ---
+    public static class SimpleVisualizer extends View {
+        private Paint paint;
+        private float amplitude = 0;
+
+        public SimpleVisualizer(Context context) {
+            super(context);
+            init();
+        }
+
+        public SimpleVisualizer(Context context, AttributeSet attrs) {
+            super(context, attrs);
+            init();
+        }
+
+        private void init() {
+            paint = new Paint();
+            paint.setColor(Color.GREEN); 
+            paint.setStrokeWidth(5f);
+            paint.setStyle(Paint.Style.STROKE);
+            setBackgroundColor(Color.BLACK); 
+        }
+
+        public void updateAmplitude(float amp) {
+            this.amplitude = amp;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            
+            int width = getWidth();
+            int height = getHeight();
+            int centerY = height / 2;
+
+            // Gambar garis tengah
+            canvas.drawLine(0, centerY, width, centerY, paint);
+
+            // Gambar batang vertikal di tengah berdasarkan amplitude
+            float barHeight = amplitude * (height / 2);
+            canvas.drawLine(width / 2, centerY - barHeight, width / 2, centerY + barHeight, paint);
         }
     }
 }
