@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Rangkabaru ST12 - Neon Visualizer Integration
+ * Modif By Rangkabaru ST12 - VisualizerView Asli OFAID Integration
  */
 
 package se.lublin.mumla.channel;
@@ -37,12 +37,10 @@ import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import se.lublin.humla.HumlaService;
 import se.lublin.humla.IHumlaService;
 import se.lublin.humla.IHumlaSession;
 import se.lublin.humla.model.IChannel;
 import se.lublin.humla.model.IUser;
-import se.lublin.humla.model.TalkState;
 import se.lublin.humla.util.HumlaDisconnectedException;
 import se.lublin.humla.util.HumlaException;
 import se.lublin.humla.util.HumlaObserver;
@@ -50,8 +48,8 @@ import se.lublin.humla.util.IHumlaObserver;
 import se.lublin.mumla.R;
 import se.lublin.mumla.Settings;
 import se.lublin.mumla.db.DatabaseProvider;
-// IMPORT NEON VISUALIZER (Sesuaikan package saat file sudah jadi)
-import se.lublin.mumla.ofa.NeonVisualizerView; 
+// IMPORT VISUALIZER ASLI OFAID
+import ofaid.ahmad.ptt.ofa.VisualizerView; 
 import se.lublin.mumla.util.HumlaServiceFragment;
 
 public class ChannelListFragment extends HumlaServiceFragment 
@@ -59,49 +57,16 @@ public class ChannelListFragment extends HumlaServiceFragment
     
     private static final String TAG = ChannelListFragment.class.getName();
 
-    // === NEON VISUALIZER DUAL MODE ===
-    private NeonVisualizerView mNeonVisualizer;
-    private int mCurrentSpeakerSession = -1;
-    private boolean mIsSelfTalking = false;
+    // === VISUALIZER MONITOR (ASLI OFAID) ===
+    private VisualizerView mVisualMonitor;
     
-    // Loop polling visualizer (~30fps)
-    private final Runnable mVisualizerPoller = new Runnable() {
-        @Override
-        public void run() {
-            if (!isAdded() || getView() == null || mNeonVisualizer == null) return;
-            
-            IHumlaService service = getService();
-            if (service instanceof HumlaService) {
-                HumlaService humlaService = (HumlaService) service;
-                
-                // LOGIKA DUAL MODE UNTUK NEON:
-                if (mIsSelfTalking) {
-                    // Mode MIC: Ambil data real dari service
-                    float micLevel = humlaService.getMicLevel(); 
-                    mNeonVisualizer.setAudioLevel(micLevel);
-                } 
-                else if (mCurrentSpeakerSession != -1) {
-                    // Mode MONITOR: Placeholder sampai library siap kirim data teman
-                    // Nanti ganti 0.5f dengan humlaService.getMonitorLevel(mCurrentSpeakerSession)
-                    mNeonVisualizer.setAudioLevel(0.5f); 
-                } 
-                else {
-                    // Hening total
-                    mNeonVisualizer.setAudioLevel(0f);
-                }
-            }
-            
-            // Ulangi setiap 33ms
-            getView().postDelayed(this, 33);
-        }
-    };
+    // Receiver untuk menerima data byte array dari Service
+    private BroadcastReceiver mPenerimaMonitor;
 
     private IHumlaObserver mServiceObserver = new HumlaObserver() {
         @Override
         public void onDisconnected(HumlaException e) {
             if (mChannelView != null) mChannelView.setAdapter(null);
-            mCurrentSpeakerSession = -1;
-            mIsSelfTalking = false;
         }
 
         @Override
@@ -141,29 +106,11 @@ public class ChannelListFragment extends HumlaServiceFragment
             if (getActivity() != null) getActivity().supportInvalidateOptionsMenu();
         }
 
-        // === DETEKSI SIAPA YANG BICARA UNTUK SWITCH MODE NEON ===
         @Override
         public void onUserTalkStateUpdated(IUser user) {
             if (mChannelListAdapter != null && mChannelView != null) {
                 mChannelListAdapter.updateUserStates(user, mChannelView);
             }
-            
-            boolean isTalking = user.getTalkState() == TalkState.TALKING 
-                             || user.getTalkState() == TalkState.SHOUTING;
-            
-            try {
-                IHumlaSession session = getService().HumlaSession();
-                int mySession = session.getSessionId();
-                
-                if (user.getSession() == mySession) {
-                    mIsSelfTalking = isTalking;
-                } else if (isTalking) {
-                    mCurrentSpeakerSession = user.getSession();
-                    mIsSelfTalking = false;
-                } else if (mCurrentSpeakerSession == user.getSession()) {
-                    mCurrentSpeakerSession = -1;
-                }
-            } catch (Exception ignored) {}
         }
     };
 
@@ -214,10 +161,33 @@ public class ChannelListFragment extends HumlaServiceFragment
         mChannelView = view.findViewById(R.id.channelUsers);
         mChannelView.setLayoutManager(new LinearLayoutManager(getActivity()));
         
-        // INISIALISASI NEON VISUALIZER
-        mNeonVisualizer = view.findViewById(R.id.neon_visualizer_fragment);
+        // INISIALISASI VISUALIZER ASLI OFAID
+        mVisualMonitor = view.findViewById(R.id.visualizerMonitor);
         
         return view;
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        
+        // PENERIMA DATA MONITOR (LOGIKA ASLI OFAID)
+        // Menerima byte array 32 elemen via broadcast
+        mPenerimaMonitor = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if ("st12.ACTION_MONITOR_BYTES".equals(intent.getAction())) {
+                    byte[] data = intent.getByteArrayExtra("bytes");
+                    if (data != null && mVisualMonitor != null) {
+                        // LANGSUNG KIRIM KE VISUALIZER TANPA SMOOTHING BUATAN
+                        mVisualMonitor.updateVisualizer(data);
+                    }
+                }
+            }
+        };
+        
+        requireContext().registerReceiver(mPenerimaMonitor, 
+            new IntentFilter("st12.ACTION_MONITOR_BYTES"));
     }
 
     @Override
@@ -225,18 +195,12 @@ public class ChannelListFragment extends HumlaServiceFragment
         super.onActivityCreated(savedInstanceState);
         registerForContextMenu(mChannelView);
         
-        // Register Bluetooth Receiver
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             getActivity().registerReceiver(mBluetoothReceiver, 
                 new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_CHANGED), RECEIVER_NOT_EXPORTED);
         } else {
             getActivity().registerReceiver(mBluetoothReceiver, 
                 new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_CHANGED));
-        }
-        
-        // MULAI LOOP NEON VISUALIZER
-        if (getView() != null) {
-            getView().post(mVisualizerPoller);
         }
     }
 
@@ -251,8 +215,11 @@ public class ChannelListFragment extends HumlaServiceFragment
 
     @Override
     public void onDestroy() {
-        // HENTIKAN LOOP AGAR TIDAK LEAK
-        if (getView() != null) getView().removeCallbacks(mVisualizerPoller);
+        // UNREGISTER RECEIVER AGAR TIDAK LEAK
+        if (mPenerimaMonitor != null) {
+            try { requireContext().unregisterReceiver(mPenerimaMonitor); } 
+            catch (IllegalArgumentException ignored) {}
+        }
         
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(getActivity());
         preferences.unregisterOnSharedPreferenceChangeListener(this);
