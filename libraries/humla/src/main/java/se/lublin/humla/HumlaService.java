@@ -77,17 +77,10 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     private static final String TAG = HumlaService.class.getName();
 
     static {
-        // Use Spongy Castle for crypto implementation so we can create and manage PKCS #12 (.p12) certificates.
         Security.insertProviderAt(new org.spongycastle.jce.provider.BouncyCastleProvider(), 1);
     }
 
-    /**
-     * An action to immediately connect to a given Mumble server.
-     * Requires that {@link #EXTRAS_SERVER} is provided.
-     */
     public static final String ACTION_CONNECT = "se.lublin.humla.CONNECT";
-
-    /** A {@link Server} specifying the server to connect to. */
     public static final String EXTRAS_SERVER = "server";
     public static final String EXTRAS_AUTO_RECONNECT = "auto_reconnect";
     public static final String EXTRAS_AUTO_RECONNECT_DELAY = "auto_reconnect_delay";
@@ -103,27 +96,19 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     public static final String EXTRAS_USE_TOR = "use_tor";
     public static final String EXTRAS_CLIENT_NAME = "client_name";
     public static final String EXTRAS_ACCESS_TOKENS = "access_tokens";
-    public static final String EXTRAS_AUDIO_SOURCE = "audio_source";
-    public static final String EXTRAS_AUDIO_STREAM = "audio_stream";
-    public static final String EXTRAS_FRAMES_PER_PACKET = "frames_per_packet";
-    /** An optional path to a trust store for CA certificates. */
     public static final String EXTRAS_TRUST_STORE = "trust_store";
-    /** The trust store's password. */
     public static final String EXTRAS_TRUST_STORE_PASSWORD = "trust_store_password";
-    /** The trust store's format. */
     public static final String EXTRAS_TRUST_STORE_FORMAT = "trust_store_format";
     public static final String EXTRAS_HALF_DUPLEX = "half_duplex";
-    /** A list of users that should be local muted upon connection. */
     public static final String EXTRAS_LOCAL_MUTE_HISTORY = "local_mute_history";
-    /** A list of users that should be local ignored upon connection. */
     public static final String EXTRAS_LOCAL_IGNORE_HISTORY = "local_ignore_history";
     public static final String EXTRAS_ENABLE_PREPROCESSOR = "enable_preprocessor";
     public static final String EXTRAS_ECHO_CANCELLATION_METHOD = "echo_cancellation_method";
-    
-    // BARIS TAMBAHAN INI YANG MEMBUAT FITUR SUSPEND MIC BISA JALAN TANPA ERROR
-    public static final String EXTRAS_SUSPEND_MIC_IDLE = "suspend_mic_idle";
+    public static final String EXTRAS_AUDIO_SOURCE = "audio_source";
+    public static final String EXTRAS_AUDIO_STREAM = "audio_stream";
+    public static final String EXTRAS_FRAMES_PER_PACKET = "frames_per_packet";
 
-    // Service settings
+
     private Server mServer;
     private boolean mAutoReconnect;
     private int mAutoReconnectDelay;
@@ -161,9 +146,10 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
     private boolean mReconnecting;
 
-    /**
-     * Listen for connectivity changes in the reconnection state, and reconnect accordingly.
-     */
+    // ========== TAMBAHAN UNTUK VISUALIZER ==========
+    private short[] mLatestRecordingBuffer;
+    // ==============================================
+
     private final BroadcastReceiver mConnectivityReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -189,6 +175,16 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
             new AudioHandler.AudioEncodeListener() {
                 @Override
                 public void onAudioEncoded(byte[] data, int length) {
+                    // Simpan data mentah untuk visualizer
+                    if (length > 0) {
+                        mLatestRecordingBuffer = new short[length / 2];
+                        for (int i = 0; i < mLatestRecordingBuffer.length; i++) {
+                            int lo = data[i*2] & 0xFF;
+                            int hi = data[i*2 + 1] << 8;
+                            mLatestRecordingBuffer[i] = (short) (hi | lo);
+                        }
+                    }
+
                     if(mConnection != null && mConnection.isSynchronized()) {
                         mConnection.sendUDPMessage(data, length, false);
                     }
@@ -200,8 +196,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
                         @Override
                         public void run() {
                             try {
-                                // If the server session is inactive, ignore this message.
-                                // It's likely that this is leftover from a terminated connection.
                                 if (!isSynchronized())
                                     return;
 
@@ -250,7 +244,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
             if (ACTION_CONNECT.equals(intent.getAction())) {
                 if (extras == null || !extras.containsKey(EXTRAS_SERVER)) {
-                    // Ensure that we have been provided all required attributes.
                     throw new RuntimeException(ACTION_CONNECT + " requires a server provided in extras.");
                 }
                 connect();
@@ -276,11 +269,10 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         mBluetoothReceiver = new BluetoothScoReceiver(this, this);
         registerReceiver(mBluetoothReceiver, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
         mToggleInputMode = new ToggleInputMode();
-        mActivityInputMode = new ActivityInputMode(0); // FIXME: reasonable default
+        mActivityInputMode = new ActivityInputMode(0);
         mContinuousInputMode = new ContinuousInputMode();
         mWhisperTargetList = new WhisperTargetList();
 
-        // initialize minidns dns lookup mechanisms
         AndroidUsingLinkProperties.setup(this);
     }
 
@@ -304,6 +296,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
             mConnectionState = ConnectionState.DISCONNECTED;
             mVoiceTargetId = 0;
             mWhisperTargetList.clear();
+            mLatestRecordingBuffer = null; // Reset buffer saat hubungkan ulang
 
             mConnection = new HumlaConnection(this);
             mConnection.setForceTCP(mForceTcp);
@@ -316,9 +309,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
             mConnection.addTCPMessageHandlers(mModelHandler);
 
             mConnectionState = ConnectionState.CONNECTING;
-
             mCallbacks.onConnecting();
-
             mConnection.connect(mServer.getSrvHost(), mServer.getSrvPort());
         } catch (HumlaException e) {
             e.printStackTrace();
@@ -336,17 +327,12 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         return mConnection != null && mConnection.isConnected();
     }
 
-    /**
-     * @return true if Humla has received the ServerSync message, indicating synchronization with
-     * the server's model and settings. This is the main state of the service.
-     */
     public boolean isSynchronized() {
         return mConnection != null && mConnection.isSynchronized();
     }
 
     @Override
     public void onConnectionEstablished() {
-        // Send version information and authenticate.
         final Mumble.Version.Builder version = Mumble.Version.newBuilder();
         version.setRelease(mClientName);
         version.setVersion(Constants.PROTOCOL_VERSION);
@@ -357,8 +343,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         auth.setUsername(mServer.getUsername());
         auth.setPassword(mServer.getPassword());
         auth.addCeltVersions(CELT7.getBitstreamVersion());
-        // FIXME: resolve issues with CELT 11 robot voices.
-//            auth.addCeltVersions(Constants.CELT_11_VERSION);
         auth.setOpus(mUseOpus);
         auth.addAllTokens(mAccessTokens);
 
@@ -368,19 +352,16 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
     @Override
     public void onConnectionSynchronized() {
-        // early disconned?
         if (!mConnection.isConnected()) {
             return;
         }
 
-        // TODO hackish, but this seems to happen?!
         if (mModelHandler == null) {
             Log.e(TAG, "onConnectionSynchronized: mAudioHandler is null");
             return;
         }
 
         mConnectionState = ConnectionState.CONNECTED;
-
         Log.v(TAG, "Connected");
         mWakeLock.acquire();
 
@@ -411,7 +392,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         if (e != null) {
             Log.e(TAG, "Error: " + e.getMessage() + " (reason: " + e.getReason().name() + ")");
             mConnectionState = ConnectionState.CONNECTION_LOST;
-
             setReconnecting(mAutoReconnect
                     && e.getReason() == HumlaException.HumlaDisconnectReason.CONNECTION_ERROR);
         } else {
@@ -429,12 +409,11 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
         mModelHandler = null;
         mAudioHandler = null;
+        mLatestRecordingBuffer = null; // Bersihkan buffer saat putus
         mVoiceTargetId = 0;
         mWhisperTargetList.clear();
 
-        // Halt SCO connection on shutdown.
         mBluetoothReceiver.stopBluetoothSco();
-
         mCallbacks.onDisconnected(e);
     }
 
@@ -446,7 +425,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     @Override
     public void logInfo(String message) {
         if (mConnection == null || !mConnection.isSynchronized())
-            return; // don't log info prior to synchronization
+            return;
         mCallbacks.onLogInfo(message);
     }
 
@@ -478,8 +457,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
                     }
                 }, mAutoReconnectDelay);
             } else {
-                // In the event that we've lost connectivity, don't poll. Wait until network
-                // returns before we resume connection attempts.
                 Log.v(TAG, "Connection lost due to connectivity issue. Waiting until network returns.");
                 try {
                     registerReceiver(mConnectivityReceiver,
@@ -497,11 +474,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         }
     }
 
-    /**
-     * Instantiates an audio handler with the current service settings, destroying any previous
-     * handler. Requires synchronization with the server, as the maximum bandwidth and session must
-     * be known.
-     */
     private void createAudioHandler() throws AudioException {
         if (BuildConfig.DEBUG && mConnectionState != ConnectionState.CONNECTED) {
             throw new AssertionError("Attempted to instantiate audio handler when not connected!");
@@ -525,13 +497,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         }
     }
 
-    /**
-     * Loads all defined settings from the given bundle into the HumlaService.
-     * Some settings may only take effect after a reconnect.
-     * @param extras A bundle with settings.
-     * @return true if a reconnect is required for changes to take effect.
-     * @see se.lublin.humla.HumlaService
-     */
     public boolean configureExtras(Bundle extras) throws AudioException {
         boolean reconnectNeeded = false;
         if (extras.containsKey(EXTRAS_SERVER)) {
@@ -588,7 +553,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         }
         if (extras.containsKey(EXTRAS_USE_TOR)) {
             mUseTor = extras.getBoolean(EXTRAS_USE_TOR);
-            mForceTcp |= mUseTor; // Tor requires TCP connections to work- if it's on, force TCP.
+            mForceTcp |= mUseTor;
             reconnectNeeded = true;
         }
         if (extras.containsKey(EXTRAS_FORCE_TCP)) {
@@ -646,7 +611,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
             mAudioBuilder.setEchoCancellationMethod(extras.getString(EXTRAS_ECHO_CANCELLATION_METHOD));
         }
 
-        // Reload audio subsystem if initialized
         if (mAudioHandler != null && mAudioHandler.isInitialized()) {
             createAudioHandler();
             Log.i(TAG, "Audio subsystem reloaded after settings change.");
@@ -656,7 +620,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
     @Override
     public void onBluetoothScoConnected() {
-        // After an SCO connection is established, audio is rerouted to be compatible with SCO.
         mAudioBuilder.setBluetoothEnabled(true);
         if (mAudioHandler != null) {
             try {
@@ -669,7 +632,6 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
 
     @Override
     public void onBluetoothScoDisconnected() {
-        // Restore audio settings after disconnection.
         mAudioBuilder.setBluetoothEnabled(false);
         if (mAudioHandler != null) {
             try {
@@ -680,21 +642,10 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         }
     }
 
-    /**
-     * Exposes the current connection. The current connection is set once an attempt to connect to
-     * a server is made, and remains set until a subsequent connection. It remains available
-     * after disconnection to provide information regarding the terminated connection.
-     * @return The active {@link HumlaConnection}.
-     */
     public HumlaConnection getConnection() {
         return mConnection;
     }
 
-    /**
-     * Returnes the current {@link AudioHandler}. An AudioHandler is instantiated upon connection
-     * to a server, and destroyed upon disconnection.
-     * @return the active AudioHandler, or null if there is no active connection.
-     */
     private AudioHandler getAudioHandler() throws NotSynchronizedException {
         if (!isSynchronized())
             throw new NotSynchronizedException();
@@ -703,23 +654,17 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         return mAudioHandler;
     }
 
-    /**
-     * Returns the current {@link ModelHandler}, containing the channel tree. A model handler is
-     * valid for the lifetime of a connection.
-     * @return the active ModelHandler, or null if there is no active connection.
-     */
     private ModelHandler getModelHandler() throws NotSynchronizedException {
         if (!isSynchronized())
             throw new NotSynchronizedException();
+       // if (mModelHandler == null && mConnectionState == CONNECTED)
+           
         if (mModelHandler == null && mConnectionState == ConnectionState.CONNECTED)
+
             throw new RuntimeException("Model handler should always be instantiated while connected!");
         return mModelHandler;
     }
 
-    /**
-     * Returns the bluetooth service provider, established after synchronization.
-     * @return The {@link BluetoothScoReceiver} attached to this service.
-     */
     private BluetoothScoReceiver getBluetoothReceiver() throws NotSynchronizedException {
         if (!isSynchronized())
             throw new NotSynchronizedException();
@@ -727,14 +672,13 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     }
 
     @Override
-    public HumlaService.ConnectionState getConnectionState() {
+    public ConnectionState getConnectionState() {
         return mConnectionState;
     }
 
     @Override
     public HumlaException getConnectionError() {
-        HumlaConnection connection = getConnection();
-        return connection != null ? connection.getError() : null;
+        return mConnection != null ? mConnection.getError() : null;
     }
 
     @Override
@@ -936,11 +880,33 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         return mToggleInputMode.isTalkingOn();
     }
 
-    @Override
-    public void setTalkingState(boolean talking) {
-        mToggleInputMode.setTalkingOn(talking);
-    }
 
+/*new*/
+
+@Override
+public void setTalkingState(boolean talking) {
+    mToggleInputMode.setTalkingOn(talking);
+    if (mAudioHandler != null) {
+        try {
+            if (talking) {
+                mAudioHandler.startRecording();
+                Log.i(TAG, "PTT: Mulai rekam & pegang mic");
+            } else {
+                mAudioHandler.stopRecording();
+                Log.i(TAG, "PTT: Selesai — lepas mic, kembalikan izin");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "🔴 Gagal atur mic: " + e.getMessage());
+        }
+    } else {
+        Log.e(TAG, "🔴 mAudioHandler BELUM SIAP — TIDAK BISA ATUR MIC!");
+    }
+}
+
+
+
+
+    /****stopnew*/
     @Override
     public void joinChannel(int channel) {
         moveUserToChannel(getSessionId(), channel);
@@ -966,18 +932,18 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     }
 
     @Override
-    public void sendAccessTokens(final List<String> tokens) {
+    public void sendAccessTokens(List<String> tokens) {
         getConnection().sendAccessTokens(tokens);
     }
 
     @Override
     public void requestBanList() {
-        throw new UnsupportedOperationException("Not yet implemented"); // TODO
+        throw new UnsupportedOperationException("Not yet implemented");
     }
 
     @Override
     public void requestUserList() {
-        throw new UnsupportedOperationException("Not yet implemented"); // TODO
+        throw new UnsupportedOperationException("Not yet implemented");
     }
 
     @Override
@@ -1068,13 +1034,34 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         }
     }
 
-    @Override
+     @Override
     public void setUserComment(int session, String comment) {
         Mumble.UserState.Builder usb = Mumble.UserState.newBuilder();
         usb.setSession(session);
         usb.setComment(comment);
         getConnection().sendTCPMessage(usb.build(), HumlaTCPMessageType.UserState);
     }
+
+    // =============================================================
+    // TAMBAHAN BARU — KIRIM AVATAR
+    // Ikut pola persis seperti setUserComment di atas
+    // =============================================================
+    @Override
+    public void setUserTexture(int session, byte[] data) {
+        Log.i("AvatarSesi", "🟢 setUserTexture dipanggil — Sesi: " + session +
+            ", Ukuran: " + (data != null ? data.length + " byte" : "KOSONG"));
+
+        Mumble.UserState.Builder usb = Mumble.UserState.newBuilder();
+        usb.setSession(session);
+        usb.setTexture(com.google.protobuf.ByteString.copyFrom(data));
+        getConnection().sendTCPMessage(usb.build(), HumlaTCPMessageType.UserState);
+
+        Log.i("AvatarSesi", "✅ Pesan avatar dikirim");
+    }
+    // =============================================================
+    // AKHIR TAMBAHAN
+    // =============================================================
+
 
     @Override
     public void setPrioritySpeaker(int session, boolean priority) {
@@ -1109,10 +1096,12 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         getConnection().sendTCPMessage(usb.build(), HumlaTCPMessageType.UserState);
     }
 
+    @Override
     public void registerObserver(IHumlaObserver observer) {
         mCallbacks.registerObserver(observer);
     }
 
+    @Override
     public void unregisterObserver(IHumlaObserver observer) {
         mCallbacks.unregisterObserver(observer);
     }
@@ -1149,7 +1138,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     }
 
     @Override
-    public byte registerWhisperTarget(final WhisperTarget target) {
+    public byte registerWhisperTarget(WhisperTarget target) {
         byte id = mWhisperTargetList.append(target);
         if (id < 0) {
             return -1;
@@ -1205,31 +1194,35 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
         }
     }
 
-    /**
-     * The current connection state of the service.
-     */
-    public enum ConnectionState {
-        /**
-         * The default state of Humla, before connection to a server and after graceful/expected
-         * disconnection from a server.
-         */
-        DISCONNECTED,
-        /**
-         * A connection to the server is currently in progress.
-         */
-        CONNECTING,
-        /**
-         * Humla has received all data necessary for normal protocol communication with the server.
-         */
-        CONNECTED,
-        /**
-         * The connection was lost due to either a kick/ban or socket I/O error.
-         * Humla may be reconnecting in this state.
-         * @see #isReconnecting()
-         * @see #cancelReconnect()
-         */
-        CONNECTION_LOST
+    // ========== METODE UNTUK VISUALIZER ==========
+    @Override
+    public short[] getRecordingBuffer() {
+        return mLatestRecordingBuffer != null ? mLatestRecordingBuffer.clone() : null;
     }
+    // ==============================================
+    @Override
+public void setStatusDenganId(String idOFA, String statusTeks) {
+         if (!isSynchronized()) {
+             Log.w(TAG, "Belum terhubung — tidak bisa kirim status");
+             return;
+         }
+         
+         try {
+             int sesiSaya = getSessionId();
+             String statusPenuh = idOFA + " | " + statusTeks;
+             
+             setUserComment(sesiSaya, statusPenuh);
+             Log.i(TAG, "✅ Status terkirim: " + statusPenuh);
+         } catch (IllegalStateException e) {
+             Log.e(TAG, "❌ Gagal kirim status: " + e.getMessage());
+         }
+     }
+     public enum ConnectionState {
+         DISCONNECTED,
+         CONNECTING,
+         CONNECTED,
+         CONNECTION_LOST
+     }
 
     public static class HumlaBinder extends Binder {
         private final IHumlaService mService;
