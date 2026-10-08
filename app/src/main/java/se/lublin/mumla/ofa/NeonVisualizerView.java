@@ -1,120 +1,128 @@
-package se.lublin.mumla.ofa;
+package se.lublin.mumla.widget;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
+import android.view.animation.LinearInterpolator;
 
-public class NeonVisualizerView extends View {
-
-    private final Paint neonPaint = new Paint();
-    private float mLevel = 0f;
+public class AudioLevelView extends View {
+    // PARAMETER ANIMASI YANG LEBIH NATURAL
+    private static final float ATTACK_RATE = 0.45f;   // Naik lebih smooth, tidak instan
+    private static final float RELEASE_RATE = 0.08f;  // Turun perlahan, tidak langsung hilang
+    private static final float MIN_DISPLAY_LEVEL = 0.02f; // Jangan reset ke 0 kalau masih ada sisa suara
     
-    // SENSITIVITAS DEFAULT DITURUNKAN (dari 1.8f ke 0.7f)
-    // Agar suara pelan tidak langsung membuat bar penuh/lempeng
-    private float mSensitivitas = 0.7f; 
+    private ValueAnimator mAnimator;
+    private float mDisplayedLevel;
+    private float mTargetLevel;
+    
+    private final Paint mFillPaint;
+    private final Paint mTrackPaint;
+    private final RectF mRect;
+    
+    // WARNA GRADASI RADIO AMATIR
+    private static final int COLOR_GREEN = Color.parseColor("#4CAF50");
+    private static final int COLOR_YELLOW = Color.parseColor("#FFC107");
+    private static final int COLOR_RED = Color.parseColor("#F44336");
+    private static final int COLOR_TRACK = Color.parseColor("#2A2A2A");
 
-    // PARAMETER PENGHALUS GERAKAN (REAL-TIME FEEL)
-    // Attack: Seberapa cepat naik saat ada suara (0.9 = responsif tapi tidak kaget)
-    private static final float ATTACK_SPEED = 0.9f; 
-    // Decay: Seberapa cepat turun saat hening (0.12 = turun perlahan & elegan)
-    private static final float DECAY_SPEED = 0.12f; 
+    public AudioLevelView(Context context) { this(context, null); }
+    public AudioLevelView(Context context, AttributeSet attrs) { this(context, attrs, 0); }
 
-    public NeonVisualizerView(Context context) {
-        super(context);
-        init();
-    }
-
-    public NeonVisualizerView(Context context, AttributeSet attrs) {
-        super(context, attrs);
-        init();
-    }
-
-    public NeonVisualizerView(Context context, AttributeSet attrs, int defStyleAttr) {
+    public AudioLevelView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
-        init();
+        mRect = new RectF();
+        
+        mTrackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mTrackPaint.setColor(COLOR_TRACK);
+        mTrackPaint.setStyle(Paint.Style.FILL);
+        
+        mFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mFillPaint.setStyle(Paint.Style.FILL);
+        
+        startAnimationLoop();
     }
 
-    private void init() {
-        neonPaint.setStyle(Paint.Style.FILL);
-        neonPaint.setAntiAlias(true);
-        
-        // Efek Glow/Pendaran Cahaya Neon
-        neonPaint.setShadowLayer(10f, 0, 0, Color.WHITE);
-        // Wajib pakai Software Layer agar shadow terlihat di semua HP Android
-        setLayerType(LAYER_TYPE_SOFTWARE, null);
+    public void setLevel(float level) {
+        if (level < 0.0f) level = 0.0f;
+        if (level > 1.0f) level = 1.0f;
+        this.mTargetLevel = level;
     }
 
-    /**
-     * Dipanggil oleh ChannelListFragment setiap ~33ms
-     */
-    public void setAudioLevel(float level) {
-        // 1. Terapkan Sensitivitas dulu
-        float target = Math.max(0f, Math.min(1f, level * mSensitivitas));
-        
-        // 2. Logika Attack & Decay yang Diperhalus
-        if (target > mLevel) {
-            // NAIK: Gunakan interpolasi linear agar tidak "loncat" instan
-            mLevel += (target - mLevel) * ATTACK_SPEED;
-        } else {
-            // TURUN: Kurangi secara konstan agar gerakannya natural seperti pegas
-            mLevel = Math.max(0f, mLevel - DECAY_SPEED);
-        }
-        
-        invalidate(); // Perintah gambar ulang
+    public void reset() {
+        this.mTargetLevel = 0.0f;
     }
 
-    public void setSensitivitas(float faktor) {
-        this.mSensitivitas = faktor;
+    private void startAnimationLoop() {
+        // Gunakan LinearInterpolator agar gerakan konsisten, tidak melambat di akhir
+        mAnimator = ValueAnimator.ofFloat(0.0f, 1.0f);
+        mAnimator.setDuration(16L); 
+        mAnimator.setInterpolator(new LinearInterpolator());
+        mAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        
+        mAnimator.addUpdateListener(animation -> {
+            // LOGIKA INTERPOLASI MANUAL AGAR TIDAK KEDIP
+            float rate = mTargetLevel > mDisplayedLevel ? ATTACK_RATE : RELEASE_RATE;
+            
+            // Rumus easing eksponensial agar transisi sangat halus
+            mDisplayedLevel += (mTargetLevel - mDisplayedLevel) * rate;
+            
+            // Cegah floating point error saat level sangat kecil
+            if (Math.abs(mDisplayedLevel - mTargetLevel) < 0.001f) {
+                mDisplayedLevel = mTargetLevel;
+            }
+            
+            // Jangan gambar kalau level benar-benar 0 untuk hemat GPU
+            if (mDisplayedLevel > 0.001f || mTargetLevel > 0.001f) {
+                invalidate();
+            }
+        });
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (mAnimator != null && !mAnimator.isStarted()) mAnimator.start();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow(); 
+        if (mAnimator != null) mAnimator.cancel();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        int width = getWidth();
+        int height = getHeight();
+        if (width <= 0 || height <= 0) return;
 
-        int lebar = getWidth();
-        int tinggi = getHeight();
+        float radius = height / 2.0f;
+        mRect.set(0.0f, 0.0f, width, height);
+        canvas.drawRoundRect(mRect, radius, radius, mTrackPaint);
         
-        // BATAS WARNA 4 GRADASI
-        int batasHijau = (int)(lebar * 0.35f);  // 0% - 35%
-        int batasJingga = (int)(lebar * 0.55f); // 35% - 55%
-        int batasKuning = (int)(lebar * 0.75f); // 55% - 75%
-        // 75% - 100% adalah Merah
+        if (mDisplayedLevel <= MIN_DISPLAY_LEVEL) return;
 
-        int panjang = (int)(lebar * mLevel);
-        float tebal = tinggi * 0.6f;
-        float yTengah = tinggi / 2f;
+        // Tentukan warna berdasarkan level real-time
+        mFillPaint.setColor(colorForLevel(mDisplayedLevel));
+        
+        float fillWidth = width * mDisplayedLevel;
+        // Pastikan lebar minimal setinggi radius agar ujung bulat tetap terlihat
+        float drawWidth = Math.max(fillWidth, height); 
+        
+        mRect.set(0.0f, 0.0f, drawWidth, height);
+        canvas.drawRoundRect(mRect, radius, radius, mFillPaint);
+    }
 
-        // ZONA 1: HIJAU (Aman / Pelan)
-        if (panjang > 0) {
-            neonPaint.setColor(Color.parseColor("#00FF00")); // Hijau Neon
-            int akhir = Math.min(panjang, batasHijau);
-            canvas.drawRect(0, yTengah - tebal/2, akhir, yTengah + tebal/2, neonPaint);
-        }
-
-        // ZONA 2: JINGGA (Sedang / Waspada)
-        if (panjang > batasHijau) {
-            neonPaint.setColor(Color.parseColor("#FF8C00")); // Jingga/DarkOrange Neon
-            int awal = batasHijau;
-            int akhir = Math.min(panjang, batasJingga);
-            canvas.drawRect(awal, yTengah - tebal/2, akhir, yTengah + tebal/2, neonPaint);
-        }
-
-        // ZONA 3: KUNING (Keras / Perhatian)
-        if (panjang > batasJingga) {
-            neonPaint.setColor(Color.parseColor("#FFFF00")); // Kuning Neon
-            int awal = batasJingga;
-            int akhir = Math.min(panjang, batasKuning);
-            canvas.drawRect(awal, yTengah - tebal/2, akhir, yTengah + tebal/2, neonPaint);
-        }
-
-        // ZONA 4: MERAH (Maksimal / Clipping Warning)
-        if (panjang > batasKuning) {
-            neonPaint.setColor(Color.parseColor("#FF0000")); // Merah Neon
-            int awal = batasKuning;
-            canvas.drawRect(awal, yTengah - tebal/2, panjang, yTengah + tebal/2, neonPaint);
-        }
+    private int colorForLevel(float level) {
+        // Threshold warna disesuaikan agar transisi gradasi lebih natural
+        if (level <= 0.65f) return COLOR_GREEN;
+        if (level <= 0.85f) return COLOR_YELLOW;
+        return COLOR_RED;
     }
 }
