@@ -10,6 +10,8 @@ import android.media.AudioManager;
 import android.media.MediaRecorder;
 import android.util.Log;
 
+import java.util.Arrays;
+
 import se.lublin.humla.R;
 import se.lublin.humla.audio.AudioInput;
 import se.lublin.humla.audio.AudioOutput;
@@ -336,15 +338,38 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         }
     }
 
+    // ==================================================
+    // ✅ LOGIKA MONITOR: DITERIMA SAAT TEMAN BICARA
+    // ==================================================
     @Override
     public void messageVoiceData(byte[] data, HumlaUDPMessageType messageType) {
         synchronized (mOutput) {
             mOutput.queueVoiceData(data, messageType);
         }
+
+        // === TAMBAHAN BARU: KIRIM DATA KE VISUALIZER MONITOR ===
+        if (data != null && data.length > 0 && mContext != null) {
+            // Hitung level sederhana dari byte data voice teman
+            int total = 0;
+            for (byte b : data) {
+                total += Math.abs(b);
+            }
+            float level = (total / (float)data.length) / 128f; // Normalisasi 0-1
+            
+            // Konversi ke byte array 32 elemen untuk VisualizerView
+            byte[] monitorBytes = new byte[32];
+            byte val = (byte)(level * 127);
+            Arrays.fill(monitorBytes, val);
+
+            Intent intent = new Intent("st12.ACTION_MONITOR_BYTES");
+            intent.putExtra("bytes", monitorBytes);
+            mContext.sendBroadcast(intent);
+        }
+        // ======================================================
     }
 
     // ==================================================
-    // ✅ INTI LOGIKA VISUALIZER - DIPANGGUL SETIAP ADA SUARA MASUK
+    // ✅ INTI LOGIKA VISUALIZER MIC - DIPANGGUL SETIAP ADA SUARA MASUK
     // ==================================================
     @Override
     public void onAudioInputReceived(short[] frame, int frameSize) {
