@@ -17,6 +17,8 @@
 
 package se.lublin.humla.audio;
 
+import android.content.Context;
+import android.content.Intent;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
 import android.os.Handler;
@@ -54,16 +56,21 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
     private AudioTrack mAudioTrack;
     private int mBufferSize;
     private Thread mThread;
-    private final Object mInactiveLock = new Object(); // Lock that the audio thread waits on when there's no audio to play. Wake when we get a frame.
+    private final Object mInactiveLock = new Object();
     private final Lock mPacketLock;
     private boolean mRunning = false;
     private Handler mMainHandler;
     private AudioOutputListener mListener;
     private final IAudioMixer<float[], short[]> mMixer;
     private ExecutorService mDecodeExecutorService;
+    
+    // === TAMBAH: KIRIM DATA SUARA KE MONITOR ===
+    private Context mAppContext;
 
-    public AudioOutput(AudioOutputListener listener) {
+    // === UBAH KONSTRUKTOR — TERIMA Context, TAMBAH 1 PARAMETER SAJA ===
+    public AudioOutput(AudioOutputListener listener, Context context) {
         mListener = listener;
+        mAppContext = context.getApplicationContext(); // simpan aman
         mMainHandler = new Handler(Looper.getMainLooper());
         mDecodeExecutorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
         mPacketLock = new ReentrantLock();
@@ -101,7 +108,7 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
 
         mRunning = false;
         synchronized (mInactiveLock) {
-            mInactiveLock.notify(); // Wake inactive lock if active
+            mInactiveLock.notify();
         }
         try {
             mThread.join();
@@ -172,7 +179,6 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
         final List<IAudioMixerSource<float[]>> sources = new ArrayList<>();
         try {
             mPacketLock.lock();
-            // Parallelize decoding using a fixed thread pool equal to the number of cores
             List<Future<AudioOutputSpeech.Result>> futureResults =
                     mDecodeExecutorService.invokeAll(mAudioOutputs.values());
             for(Future<AudioOutputSpeech.Result> future : futureResults) {
@@ -200,7 +206,29 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
             return false;
 
         mMixer.mix(sources, buffer, bufferOffset, bufferSize);
+        
+        // === TAMBAH: KIRIM DATA KE MONITOR — SETELAH CAMPUR, SEBELUM KELUAR ===
+        kirimSuaraKeMonitor(buffer, bufferOffset, bufferSize);
+        
         return true;
+    }
+
+    // === FUNGSI BARU: HITUNG & KIRIM LEVEL SUARA KE MONITOR ===
+    private void kirimSuaraKeMonitor(short[] data, int mulai, int panjang) {
+        if (mAppContext == null || data == null || panjang <= 0) return;
+
+        // Hitung RMS — sama rumus seperti Neon
+        double jumlah = 0;
+        for (int i = mulai; i < mulai + panjang; i++) {
+            jumlah += data[i] * data[i];
+        }
+        double rms = Math.sqrt(jumlah / panjang);
+        float level = (float) Math.min(rms / 32768.0f, 1.0f);
+
+        // Kirim lewat Broadcast — beda nama dari Neon, TIDAK TABRAK
+        Intent kirim = new Intent("ofaid.ahmad.ptt.LEVEL_MONITOR");
+        kirim.putExtra("level", level);
+        mAppContext.sendBroadcast(kirim);
     }
 
     public void queueVoiceData(byte[] data, HumlaUDPMessageType messageType) {
@@ -213,10 +241,8 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
         int session = (int) pds.readLong();
         User user = mListener.getUser(session);
         if(user != null && !user.isLocalMuted()) {
-            // TODO check for whispers here
             int seq = (int) pds.readLong();
 
-            // Synchronize so we don't destroy an output while we add a buffer to it.
             mPacketLock.lock();
             AudioOutputSpeech aop = mAudioOutputs.get(session);
             if(aop != null && aop.getCodec() != messageType) {
@@ -243,7 +269,6 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
                 mInactiveLock.notify();
             }
         }
-
     }
 
     @Override
@@ -261,16 +286,7 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
     }
 
     public static interface AudioOutputListener {
-        /**
-         * Called when a user's talking state is changed.
-         * @param user The user whose talking state has been modified.
-         */
         public void onUserTalkStateUpdated(User user);
-
-        /**
-         * Used to set audio-related user data.
-         * @return The user for the associated session.
-         */
         public User getUser(int session);
     }
 }
