@@ -27,6 +27,9 @@ public interface IHumlaService {
     // Untuk Visualizer (mengembalikan clone buffer audio aman)
     short[] getRecordingBuffer(); 
 
+    // Wrapper RMS untuk NeonVisualizerView (Wajib ada agar tidak error symbol!)
+    float getMicLevel(); 
+
     // Untuk kontrol PTT langsung dari UI Activity
     void setTalkingState(boolean talking);
 
