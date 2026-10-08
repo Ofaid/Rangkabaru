@@ -10,13 +10,13 @@
     android:layout_height="match_parent"
     android:background="#000000"> <!-- Background hitam agar efek neon lebih menyala -->
 
-    <!-- NEON VISUALIZER DI BAGIAN ATAS -->
-    <se.lublin.mumla.ofa.NeonVisualizerView
-        android:id="@+id/neon_visualizer_fragment"
-        android:layout_width="match_parent"
-        android:layout_height="8dp"
-        android:background="#050505" 
-        android:elevation="4dp" />
+    <!-- Contoh penempatan di header channel list -->
+<ofaid.ahmad.ptt.ofa.VisualizerView
+    android:id="@+id/visualizerMonitor"
+    android:layout_width="match_parent"
+    android:layout_height="25dp"
+    android:layout_marginStart="8dp"
+    android:layout_marginEnd="8dp" />
 
     <!-- DAFTAR CHANNEL / USER -->
     <androidx.recyclerview.widget.RecyclerView
