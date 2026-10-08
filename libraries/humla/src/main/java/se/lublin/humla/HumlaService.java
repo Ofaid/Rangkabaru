@@ -108,6 +108,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     public static final String EXTRAS_AUDIO_STREAM = "audio_stream";
     public static final String EXTRAS_FRAMES_PER_PACKET = "frames_per_packet";
 
+public static final String EXTRAS_SUSPEND_MIC_IDLE = "suspend_mic_idle";
 
     private Server mServer;
     private boolean mAutoReconnect;
