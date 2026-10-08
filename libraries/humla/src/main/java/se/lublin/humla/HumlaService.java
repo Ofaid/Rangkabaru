@@ -1,18 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Modif By OFAID & Rangkabaru ST12 - Visualizer & Status Integration
  */
 
 package se.lublin.humla;
@@ -73,7 +61,9 @@ import se.lublin.humla.util.HumlaLogger;
 import se.lublin.humla.util.IHumlaObserver;
 import se.lublin.humla.util.VoiceTargetMode;
 
-public class HumlaService extends Service implements IHumlaService, IHumlaSession, HumlaConnection.HumlaConnectionListener, HumlaLogger, BluetoothScoReceiver.Listener {
+public class HumlaService extends Service implements IHumlaService, IHumlaSession, 
+        HumlaConnection.HumlaConnectionListener, HumlaLogger, BluetoothScoReceiver.Listener {
+    
     private static final String TAG = HumlaService.class.getName();
 
     static {
@@ -107,8 +97,7 @@ public class HumlaService extends Service implements IHumlaService, IHumlaSessio
     public static final String EXTRAS_AUDIO_SOURCE = "audio_source";
     public static final String EXTRAS_AUDIO_STREAM = "audio_stream";
     public static final String EXTRAS_FRAMES_PER_PACKET = "frames_per_packet";
-
-public static final String EXTRAS_SUSPEND_MIC_IDLE = "suspend_mic_idle";
+    public static final String EXTRAS_SUSPEND_MIC_IDLE = "suspend_mic_idle";
 
     private Server mServer;
     private boolean mAutoReconnect;
@@ -658,10 +647,7 @@ public static final String EXTRAS_SUSPEND_MIC_IDLE = "suspend_mic_idle";
     private ModelHandler getModelHandler() throws NotSynchronizedException {
         if (!isSynchronized())
             throw new NotSynchronizedException();
-       // if (mModelHandler == null && mConnectionState == CONNECTED)
-           
         if (mModelHandler == null && mConnectionState == ConnectionState.CONNECTED)
-
             throw new RuntimeException("Model handler should always be instantiated while connected!");
         return mModelHandler;
     }
@@ -881,33 +867,28 @@ public static final String EXTRAS_SUSPEND_MIC_IDLE = "suspend_mic_idle";
         return mToggleInputMode.isTalkingOn();
     }
 
-
-/*new*/
-
-@Override
-public void setTalkingState(boolean talking) {
-    mToggleInputMode.setTalkingOn(talking);
-    if (mAudioHandler != null) {
-        try {
-            if (talking) {
-                mAudioHandler.startRecording();
-                Log.i(TAG, "PTT: Mulai rekam & pegang mic");
-            } else {
-                mAudioHandler.stopRecording();
-                Log.i(TAG, "PTT: Selesai — lepas mic, kembalikan izin");
+    /* --- MODIFIKASI BARU: SET TALKING STATE --- */
+    @Override
+    public void setTalkingState(boolean talking) {
+        mToggleInputMode.setTalkingOn(talking);
+        if (mAudioHandler != null) {
+            try {
+                if (talking) {
+                    mAudioHandler.startRecording();
+                    Log.i(TAG, "PTT: Mulai rekam & pegang mic");
+                } else {
+                    mAudioHandler.stopRecording();
+                    Log.i(TAG, "PTT: Selesai — lepas mic, kembalikan izin");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "🔴 Gagal atur mic: " + e.getMessage());
             }
-        } catch (Exception e) {
-            Log.e(TAG, "🔴 Gagal atur mic: " + e.getMessage());
+        } else {
+            Log.e(TAG, " mAudioHandler BELUM SIAP — TIDAK BISA ATUR MIC!");
         }
-    } else {
-        Log.e(TAG, "🔴 mAudioHandler BELUM SIAP — TIDAK BISA ATUR MIC!");
     }
-}
+    /* --- AKHIR MODIFIKASI --- */
 
-
-
-
-    /****stopnew*/
     @Override
     public void joinChannel(int channel) {
         moveUserToChannel(getSessionId(), channel);
@@ -1049,7 +1030,7 @@ public void setTalkingState(boolean talking) {
     // =============================================================
     @Override
     public void setUserTexture(int session, byte[] data) {
-        Log.i("AvatarSesi", "🟢 setUserTexture dipanggil — Sesi: " + session +
+        Log.i("AvatarSesi", " setUserTexture dipanggil — Sesi: " + session +
             ", Ukuran: " + (data != null ? data.length + " byte" : "KOSONG"));
 
         Mumble.UserState.Builder usb = Mumble.UserState.newBuilder();
@@ -1200,9 +1181,35 @@ public void setTalkingState(boolean talking) {
     public short[] getRecordingBuffer() {
         return mLatestRecordingBuffer != null ? mLatestRecordingBuffer.clone() : null;
     }
+
+    /**
+     * Wrapper untuk menghitung level RMS audio dari buffer terakhir.
+     * Dipanggil oleh NeonVisualizerView di ChannelListFragment.
+     */
+    public float getMicLevel() {
+        short[] buffer = getRecordingBuffer();
+        
+        // Safety check: jika tidak ada data atau sedang idle
+        if (buffer == null || buffer.length == 0) {
+            return 0f;
+        }
+        
+        double sum = 0;
+        // Hitung Root Mean Square (RMS)
+        for (short s : buffer) {
+            sum += s * s;
+        }
+        
+        double rms = Math.sqrt(sum / buffer.length);
+        
+        // Normalisasi ke range 0.0 - 1.0 
+        // 32768.0 adalah nilai maksimum Short (16-bit PCM audio)
+        return (float) Math.min(rms / 32768.0, 1.0);
+    }
     // ==============================================
+    
     @Override
-public void setStatusDenganId(String idOFA, String statusTeks) {
+    public void setStatusDenganId(String idOFA, String statusTeks) {
          if (!isSynchronized()) {
              Log.w(TAG, "Belum terhubung — tidak bisa kirim status");
              return;
@@ -1218,6 +1225,7 @@ public void setStatusDenganId(String idOFA, String statusTeks) {
              Log.e(TAG, "❌ Gagal kirim status: " + e.getMessage());
          }
      }
+
      public enum ConnectionState {
          DISCONNECTED,
          CONNECTING,
