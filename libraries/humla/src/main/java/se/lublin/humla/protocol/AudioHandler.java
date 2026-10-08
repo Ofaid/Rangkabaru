@@ -1,23 +1,11 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Modif By Ofaid/Ahmad 14-9-2026 — Visualizer Mic dan monitor
  */
-
 package se.lublin.humla.protocol;
 
 import android.content.Context;
+import android.content.Intent;
 import android.media.AudioManager;
 import android.media.MediaRecorder;
 import android.util.Log;
@@ -43,15 +31,6 @@ import se.lublin.humla.protobuf.Mumble;
 import se.lublin.humla.util.HumlaLogger;
 import se.lublin.humla.util.HumlaNetworkListener;
 
-/**
- * Bridges the protocol's audio messages to our input and output threads.
- * A useful intermediate for reducing code coupling.
- * Audio playback and recording is exclusively controlled by the protocol.
- * Changes to input/output instance vars after the audio threads have been initialized will recreate
- * them in most cases (they're immutable for the purpose of avoiding threading issues).
- * Calling shutdown() will cleanup both input and output threads. It is safe to restart after.
- * Created by andrew on 23/04/14.
- */
 public class AudioHandler extends HumlaNetworkListener implements AudioInput.AudioInputListener {
     private static final String TAG = AudioHandler.class.getName();
 
@@ -81,13 +60,11 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     private final float mAmplitudeBoost;
 
     private boolean mInitialized;
-    /** True if the user is muted on the server. */
     private boolean mMuted;
     private boolean mBluetoothOn;
     private boolean mHalfDuplex;
     private boolean mPreprocessorEnabled;
     private String mEchoCancellationMethod;
-    /** The last observed talking state. False if muted, or the input mode is not active. */
     private boolean mTalking;
 
     private final Object mEncoderLock;
@@ -121,8 +98,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         mEncoderLock = new Object();
 
         int actualSource = audioSource;
-        if (echoCancellationMethod.equals("system") /* android.media.audiofx.AcousticEchoCanceler */) {
-            // Enforce MODE_IN_COMMUNICATION for AudioManager, some AECs won't function without this.
+        if (echoCancellationMethod.equals("system")) {
             AudioManager audioManager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
             audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
             actualSource = MediaRecorder.AudioSource.VOICE_COMMUNICATION;
@@ -130,13 +106,11 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         mAudioSource = actualSource;
 
         mInput = new AudioInput(this, mAudioSource, mSampleRate, mEchoCancellationMethod);
-        mOutput = new AudioOutput(mOutputListener);
+       // mOutput = new AudioOutput(mOutputListener);
+      mOutput = new AudioOutput(mOutputListener, mContext);
+
     }
 
-    /**
-     * Starts the audio output and input threads.
-     * Will create both the input and output modules if they haven't been created yet.
-     */
     public synchronized void initialize(User self, int maxBandwidth, HumlaUDPMessageType codec) throws AudioException {
         if(mInitialized) return;
         mSession = self.getSession();
@@ -144,20 +118,12 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         setMaxBandwidth(maxBandwidth);
         setCodec(codec);
         setServerMuted(self.isMuted() || self.isLocalMuted() || self.isSuppressed());
-        startRecording();
-        // Ensure that if a bluetooth SCO connection is active, we use the VOICE_CALL stream.
-        // This is required by Android for compatibility with SCO.
         mOutput.startPlaying(mBluetoothOn ? AudioManager.STREAM_VOICE_CALL : mAudioStream);
 
         mInitialized = true;
     }
 
-    /**
-     * Starts a recording AudioInput thread.
-     * @throws AudioException if the input thread failed to initialize, or if a thread was already
-     *                        recording.
-     */
-    private void startRecording() throws AudioException {
+    public void startRecording() throws AudioException {
         synchronized (mInput) {
             if (!mInput.isRecording()) {
                 mInput.startRecording();
@@ -167,11 +133,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         }
     }
 
-    /**
-     * Stops the recording AudioInput thread.
-     * @throws AudioException if there was no thread recording.
-     */
-    private void stopRecording() throws AudioException {
+    public void stopRecording() throws AudioException {
         synchronized (mInput) {
             if (mInput.isRecording()) {
                 mInput.stopRecording();
@@ -181,18 +143,10 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         }
     }
 
-    /**
-     * Sets whether or not the server wants the client muted.
-     * @param muted Whether the user is muted on the server.
-     */
     private void setServerMuted(boolean muted) throws AudioException {
         mMuted = muted;
     }
 
-    /**
-     * Returns whether or not the handler has been initialized.
-     * @return true if the handler is ready to play and record audio.
-     */
     public boolean isInitialized() {
         return mInitialized;
     }
@@ -269,18 +223,12 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         return mBitrate;
     }
 
-    /**
-     * Sets the maximum bandwidth available for audio input as obtained from the server.
-     * Adjusts the bitrate and frames per packet accordingly to meet the server's requirement.
-     * @param maxBandwidth The server-reported maximum bandwidth, in bps.
-     */
     private void setMaxBandwidth(int maxBandwidth) throws AudioException {
         if (maxBandwidth == -1) {
             return;
         }
         int bitrate = mBitrate;
         int framesPerPacket = mFramesPerPacket;
-        // Logic as per desktop Mumble's AudioInput::adjustBandwidth for consistency.
         if (HumlaConnection.calculateAudioBandwidth(bitrate, framesPerPacket) > maxBandwidth) {
             if (framesPerPacket <= 4 && maxBandwidth <= 32000) {
                 framesPerPacket = 4;
@@ -314,11 +262,6 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         return mAmplitudeBoost;
     }
 
-    /**
-     * Returns whether or not the audio handler is operating in half duplex mode, muting outgoing
-     * audio when incoming audio is received.
-     * @return true if the handler is in half duplex mode.
-     */
     public boolean isHalfDuplex() {
         return mHalfDuplex;
     }
@@ -327,9 +270,6 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         return HumlaConnection.calculateAudioBandwidth(mBitrate, mFramesPerPacket);
     }
 
-    /**
-     * Shuts down the audio handler, halting input and output.
-     */
     public synchronized void shutdown() {
         synchronized (mInput) {
             mInput.shutdown();
@@ -349,11 +289,10 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         mEncodeListener.onTalkingStateChanged(false);
     }
 
-
     @Override
     public void messageCodecVersion(Mumble.CodecVersion msg) {
         if (!mInitialized)
-            return; // Only listen to change events in this handler.
+            return;
 
         HumlaUDPMessageType codec;
         if (msg.hasOpus() && msg.getOpus()) {
@@ -387,9 +326,8 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     @Override
     public void messageUserState(Mumble.UserState msg) {
         if (!mInitialized)
-            return; // We shouldn't initialize on UserState- wait for ServerSync.
+            return;
 
-        // Stop audio input if the user is muted, and resume if the user has set talking enabled.
         if (msg.hasSession() && msg.getSession() == mSession &&
                 (msg.hasMute() || msg.hasSelfMute() || msg.hasSuppress())) {
             try {
@@ -407,8 +345,16 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         }
     }
 
+    // ==================================================
+    // ✅ TEMPAT UTAMA — BACA DATA SUARA & KIRIM KE VISUAL
+    // ==================================================
     @Override
     public void onAudioInputReceived(short[] frame, int frameSize) {
+        
+        // ✅ === TAMBAHAN: HITUNG & KIRIM KE VISUALIZER ===
+        kirimLevelKeVisual(frame, frameSize);
+        // === AKHIR TAMBAHAN — DI BAWAH SEMUA TETAP ASLI ===
+
         boolean talking = mInputMode.shouldTransmit(frame, frameSize);
         talking &= !mMuted;
 
@@ -419,7 +365,6 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
             }
 
             synchronized (mEncoderLock) {
-                // Terminate encoding when talking stops.
                 if (!talking && mEncoder != null) {
                     try {
                         mEncoder.terminate();
@@ -431,12 +376,8 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         }
 
         if (talking) {
-            // Boost/reduce amplitude based on user preference
-            // TODO: perhaps amplify to the largest value that does not result in clipping.
             if (mAmplitudeBoost != 1.0f) {
                 for (int i = 0; i < frameSize; i++) {
-                    // Java only guarantees the bounded preservation of sign in a narrowing
-                    // primitive conversion from float -> int, not float -> int -> short.
                     float val = frame[i] * mAmplitudeBoost;
                     if (val > Short.MAX_VALUE) {
                         val = Short.MAX_VALUE;
@@ -471,18 +412,34 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         }
     }
 
+    // ==================================================
+    // ✅ FUNGSI BARU — HITUNG KEKUATAN SUARA & KIRIM
+    // ==================================================
+    private void kirimLevelKeVisual(short[] frame, int frameSize) {
+        if (frame == null || frameSize <= 0 || mContext == null) return;
+
+        // Rumus persis seperti contoh — RMS level dari data PCM
+        double sum = 0;
+        for (int i = 0; i < frameSize; i++) {
+            sum += frame[i] * frame[i];
+        }
+        double rms = Math.sqrt(sum / frameSize);
+        float level = (float) Math.min(rms / 32768.0f, 1.0f);
+
+        // Kirim lewat Broadcast — tidak sentuh jalur suara!
+        Intent kirim = new Intent("ofaid.ahmad.ptt.LEVEL_SUARA");
+        kirim.putExtra("level", level);
+        mContext.sendBroadcast(kirim);
+    }
+
     public void setVoiceTargetId(byte id) {
         mTargetId = id;
     }
 
     public void clearVoiceTarget() {
-        // A target ID of 0 indicates normal talking.
         mTargetId = 0;
     }
 
-    /**
-     * Fetches the buffered audio from the current encoder and sends it to the server.
-     */
     private void sendEncodedAudio() {
         int frames = mEncoder.getBufferedFrames();
 
@@ -509,9 +466,6 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         void onTalkingStateChanged(boolean talking);
     }
 
-    /**
-     * A builder to configure and instantiate the audio protocol handler.
-     */
     public static class Builder {
         private Context mContext;
         private HumlaLogger mLogger;
@@ -595,7 +549,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         }
 
         public Builder setTalkingListener(AudioOutput.AudioOutputListener talkingListener) {
-            mTalkingListener = talkingListener; // TODO: remove user dependency from AudioOutput
+            mTalkingListener = talkingListener;
             return this;
         }
 
@@ -604,10 +558,6 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
             return this;
         }
 
-        /**
-         * Creates a new AudioHandler for the given session and begins managing input/output.
-         * @return An initialized audio handler.
-         */
         public AudioHandler initialize(User self, int maxBandwidth, HumlaUDPMessageType codec, byte targetId) throws AudioException {
             AudioHandler handler = new AudioHandler(mContext, mLogger, mAudioStream, mAudioSource,
                     mInputSampleRate, mTargetBitrate, mTargetFramesPerPacket, mInputMode, targetId,
