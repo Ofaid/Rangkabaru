@@ -11,39 +11,45 @@ public class NeonVisualizerView extends View {
 
     private final Paint neonPaint = new Paint();
     private float mLevel = 0f;
-    private float mSensitivitas = 0.7f; 
+    private float mSensitivitas = 1.0f;        // ← Dikurangi dari 1.8 → 1.0
+    private float mLevelTertinggi = 0f;
+    private static final float LENYAP_CEPAT = 0.06f;  // ← Diperlambat dari 0.35 → 0.06
 
-    // Parameter penghalus gerakan
-    private static final float ATTACK_SPEED = 0.9f; 
-    private static final float DECAY_SPEED = 0.12f; 
+    public NeonVisualizerView(Context context) {
+        super(context);
+        init();
+    }
 
-    public NeonVisualizerView(Context context) { super(context); init(); }
-    public NeonVisualizerView(Context context, AttributeSet attrs) { super(context, attrs); init(); }
-    public NeonVisualizerView(Context context, AttributeSet attrs, int defStyleAttr) { super(context, attrs, defStyleAttr); init(); }
+    public NeonVisualizerView(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        init();
+    }
+
+    public NeonVisualizerView(Context context, AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
+        init();
+    }
 
     private void init() {
         neonPaint.setStyle(Paint.Style.FILL);
         neonPaint.setAntiAlias(true);
-        
-        // WAJIB ADA agar garis halus & tidak crash di semua HP
-        setLayerType(LAYER_TYPE_SOFTWARE, null);
-        
-        // PASTIKAN TIDAK ADA setShadowLayer() DI SINI
-        // Agar warna pelangi tetap tajam dan tidak ngeblur
     }
 
     public void setAudioLevel(float level) {
         float target = Math.max(0f, Math.min(1f, level * mSensitivitas));
         
         if (target > mLevel) {
-            mLevel += (target - mLevel) * ATTACK_SPEED;
+            mLevel = target;
         } else {
-            mLevel = Math.max(0f, mLevel - DECAY_SPEED);
+            // Menghilang pelan-pelan
+            mLevel = Math.max(0f, mLevel - LENYAP_CEPAT);
         }
         invalidate();
     }
 
-    public void setSensitivitas(float faktor) { this.mSensitivitas = faktor; }
+    public void setSensitivitas(float faktor) {
+        mSensitivitas = faktor;
+    }
 
     @Override
     protected void onDraw(Canvas canvas) {
@@ -52,46 +58,31 @@ public class NeonVisualizerView extends View {
         int lebar = getWidth();
         int tinggi = getHeight();
         
-        // 6 ZONA WARNA PELANGI
-        int z1 = (int)(lebar * 0.25f); 
-        int z2 = (int)(lebar * 0.40f); 
-        int z3 = (int)(lebar * 0.55f); 
-        int z4 = (int)(lebar * 0.70f); 
-        int z5 = (int)(lebar * 0.85f); 
+        int batasHijau = (int)(lebar * 0.45f);
+        int batasKuning = (int)(lebar * 0.70f);
 
         int panjang = (int)(lebar * mLevel);
-        float tebal = tinggi * 0.7f; 
+        float tebal = tinggi * 0.6f;
         float yTengah = tinggi / 2f;
 
-        // Zona 1: HIJAU
         if (panjang > 0) {
             neonPaint.setColor(Color.parseColor("#00FF00"));
-            canvas.drawRect(0, yTengah - tebal/2, Math.min(panjang, z1), yTengah + tebal/2, neonPaint);
+            if (panjang <= batasHijau) {
+                canvas.drawRect(0, yTengah - tebal/2, panjang, yTengah + tebal/2, neonPaint);
+            } else {
+                canvas.drawRect(0, yTengah - tebal/2, batasHijau, yTengah + tebal/2, neonPaint);
+            }
         }
-        // Zona 2: CYAN
-        if (panjang > z1) {
-            neonPaint.setColor(Color.parseColor("#00FFFF"));
-            canvas.drawRect(z1, yTengah - tebal/2, Math.min(panjang, z2), yTengah + tebal/2, neonPaint);
-        }
-        // Zona 3: JINGGA
-        if (panjang > z2) {
-            neonPaint.setColor(Color.parseColor("#FF8C00"));
-            canvas.drawRect(z2, yTengah - tebal/2, Math.min(panjang, z3), yTengah + tebal/2, neonPaint);
-        }
-        // Zona 4: KUNING
-        if (panjang > z3) {
+
+        if (panjang > batasHijau) {
             neonPaint.setColor(Color.parseColor("#FFFF00"));
-            canvas.drawRect(z3, yTengah - tebal/2, Math.min(panjang, z4), yTengah + tebal/2, neonPaint);
+            int akhir = Math.min(panjang, batasKuning);
+            canvas.drawRect(batasHijau, yTengah - tebal/2, akhir, yTengah + tebal/2, neonPaint);
         }
-        // Zona 5: ORANYE TUA
-        if (panjang > z4) {
-            neonPaint.setColor(Color.parseColor("#FF4500"));
-            canvas.drawRect(z4, yTengah - tebal/2, Math.min(panjang, z5), yTengah + tebal/2, neonPaint);
-        }
-        // Zona 6: MERAH
-        if (panjang > z5) {
+
+        if (panjang > batasKuning) {
             neonPaint.setColor(Color.parseColor("#FF0000"));
-            canvas.drawRect(z5, yTengah - tebal/2, panjang, yTengah + tebal/2, neonPaint);
+            canvas.drawRect(batasKuning, yTengah - tebal/2, panjang, yTengah + tebal/2, neonPaint);
         }
     }
 }
