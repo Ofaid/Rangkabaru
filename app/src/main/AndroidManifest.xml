@@ -1,20 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   ~ Copyright (C) 2014 Andrew Comminos
-  ~
-  ~ This program is free software: you can redistribute it and/or modify
-  ~ it under the terms of the GNU General Public License as published by
-  ~ the Free Software Foundation, either version 3 of the License, or
-  ~ (at your option) any later version.
-  ~
-  ~ This program is distributed in the hope that it will be useful,
-  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
-  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  ~ GNU General Public License for more details.
-  ~
-  ~ You should have received a copy of the GNU General Public License
-  ~ along with this program.  If not, see <http://www.gnu.org/licenses/>.
-  -->
+  ~ Modif By Rangkabaru ST12 - Splash Permission Launcher Integrated (Minimal Change)
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     android:installLocation="auto">
 
@@ -60,32 +48,38 @@
         android:localeConfig="@xml/local_config">
         <!-- requestLegacyExternalStorage still true: we keep using old code if Android < 30 -->
 
+        <!-- ✅ TAMBAHKAN SPLASH PERMISSION SEBAGAI LAUNCHER UTAMA -->
+        <activity
+            android:name=".app.PermissionSplashActivity"
+            android:theme="@style/Theme.Mumla"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".preference.SettingsActivity"
             android:exported="false">
             <intent-filter>
                 <action android:name="se.lublin.mumla.app.PREFS_GENERAL" />
-
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>
                 <action android:name="se.lublin.mumla.app.PREFS_AUTHENTICATION" />
-
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>
                 <action android:name="se.lublin.mumla.app.PREFS_AUDIO" />
-
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>
                 <action android:name="se.lublin.mumla.app.PREFS_APPEARANCE" />
-
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>
                 <action android:name="se.lublin.mumla.app.PREFS_ABOUT" />
-
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
@@ -130,18 +124,14 @@
         </receiver>
 
         <!-- Launcher trampoline: routes to the keypad "radio" UI on no-touch devices
-             (Hytera POC radios), otherwise to the normal MumlaActivity. -->
+             (Hytera POC radios), otherwise to the normal MumlaActivity. 
+             ✅ INTENT FILTER MAIN/LAUNCHER DIHAPUS AGAR TIDAK BENTROK DENGAN SPLASH -->
         <activity
             android:name=".app.radio.RadioRouterActivity"
             android:theme="@style/Theme.Mumla"
             android:noHistory="true"
             android:excludeFromRecents="true"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- Keypad/D-pad UI for no-touch radios (reuses MumlaService/Settings/DB). -->
