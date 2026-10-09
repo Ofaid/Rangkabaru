@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Rangkabaru ST12 - VisualizerView Asli OFAID Integration + Realtime Decay
+ * Modif By Rangkabaru ST12 - VisualizerView Asli OFAID Integration + Realtime Decay Fixed
  */
 
 package se.lublin.mumla.channel;
@@ -71,6 +71,9 @@ public class ChannelListFragment extends HumlaServiceFragment
     private float mMonitorLevel = 0f;
     private Handler mMonitorHandler = new Handler(Looper.getMainLooper());
     private Runnable mMonitorDecayRunnable;
+    
+    // Threshold agar tidak "berdetak" saat hening total
+    private static final float SILENCE_THRESHOLD = 0.015f; 
 
     private IHumlaObserver mServiceObserver = new HumlaObserver() {
         @Override
@@ -188,7 +191,11 @@ public class ChannelListFragment extends HumlaServiceFragment
                     byte[] data = intent.getByteArrayExtra("bytes");
                     if (data != null && data.length > 0) {
                         // Ambil nilai pertama sebagai representasi level suara teman
-                        float targetLevel = Math.abs(data[0]) / 127f;
+                        float rawLevel = Math.abs(data[0]) / 127f;
+                        
+                        // BOOST SENSITIVITAS MONITOR (3.5x - 5x)
+                        // Data voice dari jaringan biasanya kecil, perlu di-boost agar讲话 keras bisa full bar
+                        float targetLevel = Math.min(rawLevel * 4.0f, 1.0f); 
                         
                         // Attack Cepat: Langsung naik saat ada suara baru
                         if (targetLevel > mMonitorLevel) {
@@ -205,11 +212,13 @@ public class ChannelListFragment extends HumlaServiceFragment
         mMonitorDecayRunnable = new Runnable() {
             @Override
             public void run() {
-                // Turunkan level secara konstan agar gerakan mulus & pasti balik nol
-                if (mMonitorLevel > 0.01f) {
-                    mMonitorLevel *= 0.92f; // Faktor decay (0.92 = turun elegan ~300ms)
-                } else {
+                // LOGIKA DECAY YANG LEBIH PINTAR
+                // Jika level di bawah threshold, paksa jadi 0 (biar gak berdetak sendiri)
+                if (mMonitorLevel <= SILENCE_THRESHOLD) {
                     mMonitorLevel = 0f;
+                } else {
+                    // Turunkan level secara konstan agar gerakan mulus
+                    mMonitorLevel *= 0.88f; // Faktor decay (0.88 = turun elegan ~250ms)
                 }
                 
                 // Gambar ulang visualizer berdasarkan level terkini
