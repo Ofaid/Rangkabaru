@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Ofaid/Ahmad & Rangkabaru ST12 - AudioHandler + Mic Sensitivity & LPF Fixed
+ * Modif By Ofaid/Ahmad & Rangkabaru ST12 - AudioHandler + Discrete Block Mic Visualizer
  */
 package se.lublin.humla.protocol;
 
@@ -70,13 +70,16 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     private final Object mEncoderLock;
     private byte mTargetId;
 
-    // ✅ STATE UNTUK LOW-PASS FILTER DI SISI PENGIRIM
+    // ✅ STATE & KONSTANTA UNTUK DISCRETE BLOCK MAPPING
     private float mFilteredMicLevel = 0f;
     private static final float LPF_ALPHA = 0.15f; 
     
-    // ✅ INPUT GAIN UNTUK MENAIKKAN SENSITIVITAS MIC
-    // 3.5x = optimal untuk mic HP Android agar tidak perlu teriak
-    private static final float MIC_INPUT_GAIN = 3.5f; 
+    // ✅ GAIN DINAIIKAN MENJADI 6.0x AGAR SUARA NORMAL LANGSUNG MENYALA
+    private static final float MIC_INPUT_GAIN = 6.0f; 
+
+    // ✅ THRESHOLD TRANSISI BLOK (Bisa di-tuning nanti saat tes manual)
+    private static final float THRESHOLD_GREEN_YELLOW = 0.45f; 
+    private static final float THRESHOLD_YELLOW_RED = 0.75f; 
 
     public AudioHandler(Context context, HumlaLogger logger, int audioStream, int audioSource,
                         int sampleRate, int targetBitrate, int targetFramesPerPacket,
@@ -423,7 +426,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     }
 
     // ==================================================
-    // ✅ FUNGSI KHUSUS MIC DENGAN GAIN + SOFT-CLIP + LPF
+    // ✅ FUNGSI KHUSUS MIC DENGAN DISCRETE BLOCK MAPPING
     // ==================================================
     private void kirimLevelKeVisualMicOnly(short[] frame, int frameSize) {
         if (frame == null || frameSize <= 0 || mContext == null) return;
@@ -434,20 +437,29 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         }
         double rms = Math.sqrt(sum / frameSize);
         
-        // 1. TERAPKAN INPUT GAIN SEBELUM PROSES LAINNYA
-        // Mengangkat level dasar agar suara normal bisa capai zona terang
+        // 1. TERAPKAN INPUT GAIN TINGGI + SOFT-CLIPPING
         float rawLevel = (float) ((rms * MIC_INPUT_GAIN) / 32768.0f);
-
-        // 2. SOFT-CLIPPING (Mencegah sinyal pecah saat gain tinggi)
-        // Rumus x/(1+x) memastikan level tidak pernah hard-clipped di 1.0
         float processedLevel = rawLevel / (1.0f + rawLevel);
 
-        // 3. LOW-PASS FILTER (Haluskan getaran sisa)
+        // 2. LOW-PASS FILTER (Agar perpindahan blok tidak glitchy/kaget)
         mFilteredMicLevel = (LPF_ALPHA * processedLevel) + ((1f - LPF_ALPHA) * mFilteredMicLevel);
 
-        // HANYA kirim level yang SUDAH DIPROSES ke Visualizer
+        // 3. DISCRETE BLOCK MAPPING (INTI PERUBAHAN!)
+        // Memaksa level ke titik diskrit agar visualizer menampilkan blok warna murni
+        float discreteLevel;
+        if (mFilteredMicLevel < THRESHOLD_GREEN_YELLOW) {
+            // BLOK HIJAU: Biarkan dinamis di range bawah
+            discreteLevel = mFilteredMicLevel; 
+        } else if (mFilteredMicLevel < THRESHOLD_YELLOW_RED) {
+            // BLOK KUNING: Dipaksa ke tengah agar menyala penuh tanpa gradasi
+            discreteLevel = 0.6f; 
+        } else {
+            // BLOK MERAH: Dipaksa mentok agar menyala penuh
+            discreteLevel = 1.0f; 
+        }
+
         Intent kirimNeon = new Intent("ofaid.ahmad.ptt.LEVEL_SUARA");
-        kirimNeon.putExtra("level", mFilteredMicLevel);
+        kirimNeon.putExtra("level", discreteLevel);
         mContext.sendBroadcast(kirimNeon);
     }
 
