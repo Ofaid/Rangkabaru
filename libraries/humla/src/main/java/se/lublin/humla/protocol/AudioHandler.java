@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Ofaid/Ahmad & Rangkabaru ST12 - AudioHandler Cleaned (Monitor Moved to AudioOutput)
+ * Modif By Ofaid/Ahmad & Rangkabaru ST12 - AudioHandler + Mic LPF Fixed
  */
 package se.lublin.humla.protocol;
 
@@ -69,6 +69,10 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
 
     private final Object mEncoderLock;
     private byte mTargetId;
+
+    // ✅ STATE UNTUK LOW-PASS FILTER DI SISI PENGIRIM
+    private float mFilteredMicLevel = 0f;
+    private static final float LPF_ALPHA = 0.15f; // 0.15 = filter kuat, noise hilang total
 
     public AudioHandler(Context context, HumlaLogger logger, int audioStream, int audioSource,
                         int sampleRate, int targetBitrate, int targetFramesPerPacket,
@@ -354,7 +358,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     @Override
     public void onAudioInputReceived(short[] frame, int frameSize) {
         
-        // HANYA kirim ke NeonVisualizer (Mic Sendiri)
+        // HANYA kirim ke Visualizer (Mic Sendiri)
         kirimLevelKeVisualMicOnly(frame, frameSize);
 
         // Logika PTT asli OFAID (JANGAN DIUBAH)
@@ -416,7 +420,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     }
 
     // ==================================================
-    // ✅ FUNGSI KHUSUS MIC (TIDAK MENYENTUH MONITOR)
+    // ✅ FUNGSI KHUSUS MIC DENGAN LOW-PASS FILTER
     // ==================================================
     private void kirimLevelKeVisualMicOnly(short[] frame, int frameSize) {
         if (frame == null || frameSize <= 0 || mContext == null) return;
@@ -426,11 +430,17 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
             sum += frame[i] * frame[i];
         }
         double rms = Math.sqrt(sum / frameSize);
-        float level = (float) Math.min(rms / 32768.0f, 1.0f);
+        float rawLevel = (float) Math.min(rms / 32768.0f, 1.0f);
 
-        // HANYA kirim ke NeonVisualizer
+        // TERAPKAN LOW-PASS FILTER SEBELUM KIRIM
+        // Rumus: filtered = (alpha * raw) + ((1 - alpha) * previous_filtered)
+        // Alpha 0.15 artinya hanya 15% data baru yang masuk, 85% adalah rata-rata sebelumnya
+        // Ini menghilangkan getaran mikro tanpa membuat respons jadi lambat
+        mFilteredMicLevel = (LPF_ALPHA * rawLevel) + ((1f - LPF_ALPHA) * mFilteredMicLevel);
+
+        // HANYA kirim level yang SUDAH DIFILTER ke Visualizer
         Intent kirimNeon = new Intent("ofaid.ahmad.ptt.LEVEL_SUARA");
-        kirimNeon.putExtra("level", level);
+        kirimNeon.putExtra("level", mFilteredMicLevel);
         mContext.sendBroadcast(kirimNeon);
     }
 
