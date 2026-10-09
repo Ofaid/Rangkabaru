@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Ofaid/Ahmad & Rangkabaru ST12 - Visualizer Mic & Monitor Integration
+ * Modif By Ofaid/Ahmad & Rangkabaru ST12 - Monitor Fixed (PCM Output Source)
  */
 package se.lublin.humla.protocol;
 
@@ -37,7 +37,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     private static final String TAG = AudioHandler.class.getName();
 
     public static final int SAMPLE_RATE = 48000;
-    public static final int FRAME_SIZE = SAMPLE_RATE/100;
+    public static final int FRAME_SIZE = SAMPLE_RATE / 100;
     public static final int MAX_BUFFER_SIZE = 960;
 
     private final Context mContext;
@@ -112,7 +112,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     }
 
     public synchronized void initialize(User self, int maxBandwidth, HumlaUDPMessageType codec) throws AudioException {
-        if(mInitialized) return;
+        if (mInitialized) return;
         mSession = self.getSession();
 
         setMaxBandwidth(maxBandwidth);
@@ -250,7 +250,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
             mFramesPerPacket = framesPerPacket;
 
             mLogger.logInfo(mContext.getString(R.string.audio_max_bandwidth,
-                    maxBandwidth/1000, maxBandwidth/1000, framesPerPacket * 10));
+                    maxBandwidth / 1000, maxBandwidth / 1000, framesPerPacket * 10));
         }
     }
 
@@ -339,45 +339,50 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     }
 
     // ==================================================
-    // ✅ LOGIKA MONITOR: DITERIMA SAAT TEMAN BICARA
+    // ✅ PERBAIKAN MONITOR: AMBIL DATA DARI OUTPUT PCM
     // ==================================================
     @Override
     public void messageVoiceData(byte[] data, HumlaUDPMessageType messageType) {
         synchronized (mOutput) {
             mOutput.queueVoiceData(data, messageType);
-        }
-
-        // === TAMBAHAN BARU: KIRIM DATA KE VISUALIZER MONITOR ===
-        if (data != null && data.length > 0 && mContext != null) {
-            // Hitung level sederhana dari byte data voice teman
-            int total = 0;
-            for (byte b : data) {
-                total += Math.abs(b);
-            }
-            float level = (total / (float)data.length) / 128f; // Normalisasi 0-1
             
-            // Konversi ke byte array 32 elemen untuk VisualizerView
-            byte[] monitorBytes = new byte[32];
-            byte val = (byte)(level * 127);
-            Arrays.fill(monitorBytes, val);
+            // === PERBAIKAN KRUSIAL ===
+            // Jangan pakai 'data' (compressed packet) untuk visualizer!
+            // Ambil buffer PCM mentah yang baru saja didecode oleh AudioOutput
+            short[] pcmFrame = mOutput.getLastDecodedFrame(); 
+            
+            if (pcmFrame != null && pcmFrame.length > 0 && mContext != null) {
+                // Hitung RMS dari PCM MENTAH (bukan compressed byte)
+                double sum = 0;
+                for (short s : pcmFrame) {
+                    sum += s * s;
+                }
+                double rms = Math.sqrt(sum / pcmFrame.length);
+                float level = (float) Math.min(rms / 32768.0f, 1.0f);
+                
+                // Konversi ke byte[32] untuk VisualizerView
+                byte[] monitorBytes = new byte[32];
+                byte val = (byte) (level * 127);
+                Arrays.fill(monitorBytes, val);
 
-            Intent intent = new Intent("st12.ACTION_MONITOR_BYTES");
-            intent.putExtra("bytes", monitorBytes);
-            mContext.sendBroadcast(intent);
+                Intent intent = new Intent("st12.ACTION_MONITOR_BYTES");
+                intent.putExtra("bytes", monitorBytes);
+                mContext.sendBroadcast(intent);
+            }
         }
-        // ======================================================
     }
 
     // ==================================================
-    // ✅ INTI LOGIKA VISUALIZER MIC - DIPANGGUL SETIAP ADA SUARA MASUK
+    // ✅ LOGIKA MIC VISUALIZER (BERSIH DARI MONITOR)
     // ==================================================
     @Override
     public void onAudioInputReceived(short[] frame, int frameSize) {
         
-        // 1. Hitung level & kirim ke NeonVisualizer (Mic Sendiri)
-        kirimLevelKeVisual(frame, frameSize);
+        // HANYA kirim ke NeonVisualizer (Mic Sendiri)
+        // TIDAK LAGI mengirim ke st12.ACTION_MONITOR_BYTES
+        kirimLevelKeVisualMicOnly(frame, frameSize);
 
-        // 2. Logika PTT asli OFAID (JANGAN DIUBAH)
+        // Logika PTT asli OFAID (JANGAN DIUBAH)
         boolean talking = mInputMode.shouldTransmit(frame, frameSize);
         talking &= !mMuted;
 
@@ -436,12 +441,11 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     }
 
     // ==================================================
-    // ✅ FUNGSI KIRIM DATA KE SEMUA VISUALIZER
+    // ✅ FUNGSI KHUSUS MIC (TIDAK MENYENTUH MONITOR)
     // ==================================================
-    private void kirimLevelKeVisual(short[] frame, int frameSize) {
+    private void kirimLevelKeVisualMicOnly(short[] frame, int frameSize) {
         if (frame == null || frameSize <= 0 || mContext == null) return;
 
-        // Hitung RMS Level dari buffer PCM
         double sum = 0;
         for (int i = 0; i < frameSize; i++) {
             sum += frame[i] * frame[i];
@@ -449,24 +453,10 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         double rms = Math.sqrt(sum / frameSize);
         float level = (float) Math.min(rms / 32768.0f, 1.0f);
 
-        // A. Kirim Float ke NeonVisualizer (Mic Sendiri)
+        // HANYA kirim ke NeonVisualizer
         Intent kirimNeon = new Intent("ofaid.ahmad.ptt.LEVEL_SUARA");
         kirimNeon.putExtra("level", level);
         mContext.sendBroadcast(kirimNeon);
-
-        // B. Kirim Byte Array ke VisualizerView 32 Batang (Monitor)
-        // Konversi level float menjadi 32 elemen byte agar cocok dengan VisualizerView asli
-        byte[] monitorData = new byte[32];
-        byte nilaiByte = (byte)(level * 127); 
-        
-        // Isi semua batang dengan nilai level saat ini
-        for (int i = 0; i < 32; i++) {
-            monitorData[i] = nilaiByte;
-        }
-
-        Intent intentMonitor = new Intent("st12.ACTION_MONITOR_BYTES");
-        intentMonitor.putExtra("bytes", monitorData);
-        mContext.sendBroadcast(intentMonitor);
     }
 
     public void setVoiceTargetId(byte id) {
