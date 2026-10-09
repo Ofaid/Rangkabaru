@@ -44,7 +44,7 @@ public class VisualizerView extends View {
         invalidate();
     }
 
-    @Override
+  @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         
@@ -53,8 +53,7 @@ public class VisualizerView extends View {
         int lebarTotal = getWidth();
         int tinggiTotal = getHeight();
         
-        // AMBIL NILAI DARI DATA PERTAMA (KARENA SEKARANG CUMA 1 BATANG)
-        // Atau rata-rata jika data lebih dari 1 elemen
+        // Hitung level rata-rata (sama seperti sebelumnya)
         int total = 0;
         for (byte b : mData) {
             total += Math.abs(b);
@@ -62,41 +61,27 @@ public class VisualizerView extends View {
         float nilai = (total / (float)mData.length) / 128f;
         if (nilai > 1f) nilai = 1f;
         
-        // PANJANG BATANG MENDATAR BERDASARKAN LEVEL
         float panjangBatang = lebarTotal * nilai;
-        if (panjangBatang < 2f) panjangBatang = 2f; // Minimal terlihat
-        
-        // WARNA DINAMIS ASLI OFAID (Hijau -> Kuning -> Merah)
-        int warna;
-        if (nilai < 0.5f) {
-            // Hijau ke Kuning
-            float f = nilai / 0.5f;
-            int r = (int)(0xFF * f);
-            int g = 0xFF;
-            int b = 0;
-            warna = Color.rgb(r, g, b);
-        } else {
-            // Kuning ke Merah
-            float f = (nilai - 0.5f) / 0.5f;
-            int r = 0xFF;
-            int g = (int)(0xFF * (1f - f));
-            int b = 0;
-            warna = Color.rgb(r, g, b);
+        if (panjangBatang < 2f) panjangBatang = 2f;
+
+        // === LOGIKA BLOK TEGAS (PENGHAPUS GRADASI) ===
+        int batasHijau = (int)(lebarTotal * 0.45f);
+        int batasKuning = (int)(lebarTotal * 0.70f);
+
+        // 1. GAMBAR BLOK HIJAU (Dasar)
+        mPaint.setColor(WARNA_BAWAH); // #00FF00
+        canvas.drawRect(0, 0, Math.min(panjangBatang, batasHijau), tinggiTotal, mPaint);
+
+        // 2. GAMBAR BLOK KUNING (Hanya jika level tembus 45%)
+        if (panjangBatang > batasHijau) {
+            mPaint.setColor(WARNA_TENGAH); // #FFFF00
+            int akhirKuning = Math.min((int)panjangBatang, batasKuning);
+            canvas.drawRect(batasHijau, 0, akhirKuning, tinggiTotal, mPaint);
         }
-        
-        mPaint.setColor(warna);
-        
-        // GAMBAR MENDATAR: Dari kiri (0) ke kanan (panjangBatang)
-        // Posisi Y di tengah-tengah tinggi view agar rapi
-        float yAtas = (tinggiTotal - tinggiTotal) / 2f; // Mulai dari atas
-        float yBawah = tinggiTotal; // Sampai bawah (atau bisa diatur tebalnya)
-        
-        // OPSI A: PENUH TINGGI (Solid Bar)
-        canvas.drawRect(0, 0, panjangBatang, tinggiTotal, mPaint);
-        
-        // OPSI B: GARIS TIPIS DI TENGAH (Uncomment jika mau gaya neon tipis)
-        // float tebalGaris = tinggiTotal * 0.6f;
-        // float yTengah = tinggiTotal / 2f;
-        // canvas.drawRect(0, yTengah - tebalGaris/2, panjangBatang, yTengah + tebalGaris/2, mPaint);
+
+        // 3. GAMBAR BLOK MERAH (Hanya jika level tembus 70%)
+        if (panjangBatang > batasKuning) {
+            mPaint.setColor(WARNA_ATAS); // #FF0000
+            canvas.drawRect(batasKuning, 0, (int)panjangBatang, tinggiTotal, mPaint);
+        }
     }
-}
