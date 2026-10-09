@@ -6,12 +6,14 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.widget.Button;
 import android.widget.TextView;
+
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import java.util.ArrayList;
-import java.util.List;
+
+// ✅ IMPORT R YANG LUPA TADI
+import se.lublin.mumla.R; 
 
 public class PermissionSplashActivity extends AppCompatActivity {
     private static final int REQ_CODE = 200;
@@ -24,17 +26,31 @@ public class PermissionSplashActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (hasAll()) { goToMain(); return; }
+        
+        // Jika sudah punya semua izin, langsung ke MumlaActivity
+        if (hasAllPermissions()) {
+            goToMain();
+            return;
+        }
         
         setContentView(R.layout.activity_permission_splash);
-        ((TextView)findViewById(R.id.tv_desc)).setText("Aplikasi butuh akses Mic & Storage untuk PTT, Visualizer, dan Memo.\nKlik tombol di bawah untuk lanjut.");
-        ((Button)findViewById(R.id.btn_grant)).setOnClickListener(v -> 
-            ActivityCompat.requestPermissions(this, PERMS, REQ_CODE));
+        
+        // ✅ CASTING DIHAPUS AGAR TIDAK ADA WARNING REDUNDANT
+        TextView tvDesc = findViewById(R.id.tv_desc);
+        tvDesc.setText("Aplikasi butuh akses Mic & Storage untuk PTT, Visualizer, dan Memo.\nKlik tombol di bawah untuk lanjut.");
+        
+        Button btnGrant = findViewById(R.id.btn_grant);
+        btnGrant.setOnClickListener(v -> 
+            ActivityCompat.requestPermissions(this, PERMS, REQ_CODE)
+        );
     }
 
-    private boolean hasAll() {
-        for (String p : PERMS) 
-            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) return false;
+    private boolean hasAllPermissions() {
+        for (String p : PERMS) {
+            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -43,9 +59,16 @@ public class PermissionSplashActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(rc, perms, results);
         if (rc == REQ_CODE) {
             boolean ok = true;
-            for (int r : results) if (r != PackageManager.PERMISSION_GRANTED) ok = false;
-            if (ok) goToMain();
-            else ((TextView)findViewById(R.id.tv_desc)).setText("Izin ditolak. Aplikasi tidak bisa jalan tanpa izin tersebut.\nCoba lagi.");
+            for (int r : results) {
+                if (r != PackageManager.PERMISSION_GRANTED) ok = false;
+            }
+            if (ok) {
+                goToMain();
+            } else {
+                // ✅ CASTING DIHAPUS JUGA DI SINI
+                TextView tvDesc = findViewById(R.id.tv_desc);
+                tvDesc.setText("Izin ditolak. Aplikasi tidak bisa jalan tanpa izin tersebut.\nCoba lagi.");
+            }
         }
     }
 
