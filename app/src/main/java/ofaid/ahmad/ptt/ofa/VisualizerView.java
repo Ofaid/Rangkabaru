@@ -44,7 +44,7 @@ public class VisualizerView extends View {
         invalidate();
     }
 
-  @Override
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         
@@ -53,7 +53,7 @@ public class VisualizerView extends View {
         int lebarTotal = getWidth();
         int tinggiTotal = getHeight();
         
-        // Hitung level rata-rata (sama seperti sebelumnya)
+        // Hitung level rata-rata
         int total = 0;
         for (byte b : mData) {
             total += Math.abs(b);
@@ -84,4 +84,5 @@ public class VisualizerView extends View {
             mPaint.setColor(WARNA_ATAS); // #FF0000
             canvas.drawRect(batasKuning, 0, (int)panjangBatang, tinggiTotal, mPaint);
         }
-    }
+    } // <-- Penutup method onDraw
+}     // <-- Penutup class VisualizerView
