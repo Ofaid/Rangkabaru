@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Rangkabaru ST12 - Monitor Fixed (Sensitivitas Aman + Warna Dinamis)
+ * Modif By Rangkabaru ST12 - VisualizerView Asli OFAID Integration + Realtime Decay Fixed
  */
 
 package se.lublin.mumla.channel;
@@ -15,11 +15,12 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.CursorWrapper;
-import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -65,6 +66,14 @@ public class ChannelListFragment extends HumlaServiceFragment
     
     // Receiver untuk menerima data byte array dari Service
     private BroadcastReceiver mPenerimaMonitor;
+
+    // === VARIABEL UNTUK REALTIME DECAY (JANTUNG ANIMASI) ===
+    private float mMonitorLevel = 0f;
+    private Handler mMonitorHandler = new Handler(Looper.getMainLooper());
+    private Runnable mMonitorDecayRunnable;
+    
+    // Threshold agar tidak "berdetak" saat hening total
+    private static final float SILENCE_THRESHOLD = 0.015f; 
 
     private IHumlaObserver mServiceObserver = new HumlaObserver() {
         @Override
@@ -174,59 +183,23 @@ public class ChannelListFragment extends HumlaServiceFragment
     public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         
-        // LOGIKA MURNI DATA-DRIVEN DENGAN SENSITIVITAS AMAN
+        // 1. SETUP RECEIVER HANYA UNTUK MENERIMA DATA ATTACK
         mPenerimaMonitor = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if ("st12.ACTION_MONITOR_BYTES".equals(intent.getAction())) {
                     byte[] data = intent.getByteArrayExtra("bytes");
-                    
-                    if (data != null && data.length > 0 && mVisualMonitor != null) {
-                        // Ambil nilai rata-rata agar lebih stabil daripada ambil index 0 saja
-                        int total = 0;
-                        for (byte b : data) total += Math.abs(b);
-                        float rawLevel = (total / (float)data.length) / 127f;
+                    if (data != null && data.length > 0) {
+                        // Ambil nilai pertama sebagai representasi level suara teman
+                        float rawLevel = Math.abs(data[0]) / 127f;
                         
-                        // ✅ SENSITIVITAS DITURUNKAN JADI 1.8x (AMAN DARI NOISE)
-                        // Hanya akan merah jika benar-benar ada suara keras
-                        float targetLevel = Math.min(rawLevel * 1.8f, 1.0f); 
+                        // BOOST SENSITIVITAS MONITOR (3.5x - 5x)
+                        // Data voice dari jaringan biasanya kecil, perlu di-boost agar讲话 keras bisa full bar
+                        float targetLevel = Math.min(rawLevel * 4.0f, 1.0f); 
                         
-                        // WARNA DINAMIS ASLI OFAID (Hijau -> Kuning -> Merah)
-                        int warna;
-                        if (targetLevel < 0.5f) {
-                            // Hijau ke Kuning
-                            float f = targetLevel / 0.5f;
-                            int r = (int)(0xFF * f);
-                            int g = 0xFF;
-                            int b = 0;
-                            warna = Color.rgb(r, g, b);
-                        } else {
-                            // Kuning ke Merah
-                            float f = (targetLevel - 0.5f) / 0.5f;
-                            int r = 0xFF;
-                            int g = (int)(0xFF * (1f - f));
-                            int b = 0;
-                            warna = Color.rgb(r, g, b);
-                        }
-                        
-                        // Konversi ke byte[32] dengan warna yang sudah dihitung
-                        // Catatan: VisualizerView asli pakai Paint.setColor(warna) di onDraw
-                        // Tapi karena kita kirim byte[], warna ditentukan di View.
-                        // Untuk override warna di Fragment, kita butuh modifikasi View.
-                        // SOLUSI SEDERHANA: Kita tetap kirim level, biarkan View handle warna.
-                        // TAPI karena View asli warnanya fixed berdasarkan level, 
-                        // kita pastikan levelnya akurat saja.
-                        
-                        byte[] smoothData = new byte[32];
-                        byte val = (byte)(targetLevel * 127);
-                        Arrays.fill(smoothData, val);
-                        
-                        mVisualMonitor.updateVisualizer(smoothData);
-                    } else {
-                        // MATI TOTAL INSTAN SAAT TIDAK ADA DATA
-                        if (mVisualMonitor != null) {
-                            byte[] zeroData = new byte[32];
-                            mVisualMonitor.updateVisualizer(zeroData);
+                        // Attack Cepat: Langsung naik saat ada suara baru
+                        if (targetLevel > mMonitorLevel) {
+                            mMonitorLevel = targetLevel;
                         }
                     }
                 }
@@ -234,6 +207,33 @@ public class ChannelListFragment extends HumlaServiceFragment
         };
         requireContext().registerReceiver(mPenerimaMonitor, 
             new IntentFilter("st12.ACTION_MONITOR_BYTES"));
+
+        // 2. JALANKAN HEARTBEAT DECAY MANDIRI SETIAP 30MS
+        mMonitorDecayRunnable = new Runnable() {
+            @Override
+            public void run() {
+                // LOGIKA DECAY YANG LEBIH PINTAR
+                // Jika level di bawah threshold, paksa jadi 0 (biar gak berdetak sendiri)
+                if (mMonitorLevel <= SILENCE_THRESHOLD) {
+                    mMonitorLevel = 0f;
+                } else {
+                    // Turunkan level secara konstan agar gerakan mulus
+                    mMonitorLevel *= 0.88f; // Faktor decay (0.88 = turun elegan ~250ms)
+                }
+                
+                // Gambar ulang visualizer berdasarkan level terkini
+                if (mVisualMonitor != null) {
+                    byte[] smoothData = new byte[32];
+                    byte val = (byte)(mMonitorLevel * 127);
+                    Arrays.fill(smoothData, val);
+                    mVisualMonitor.updateVisualizer(smoothData);
+                }
+                
+                // Ulangi loop dalam 30ms (~33 FPS)
+                mMonitorHandler.postDelayed(this, 30);
+            }
+        };
+        mMonitorHandler.post(mMonitorDecayRunnable);
     }
 
     @Override
@@ -262,6 +262,11 @@ public class ChannelListFragment extends HumlaServiceFragment
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        
+        // HENTIKAN HEARTBEAT AGAR TIDAK BOROS BATERAI SAAT KELUAR FRAGMENT
+        if (mMonitorHandler != null && mMonitorDecayRunnable != null) {
+            mMonitorHandler.removeCallbacks(mMonitorDecayRunnable);
+        }
         
         // UNREGISTER RECEIVER AGAR TIDAK LEAK
         if (mPenerimaMonitor != null) {
