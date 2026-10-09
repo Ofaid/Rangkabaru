@@ -1,5 +1,5 @@
-name: Bangun OFA (Foss Debug)
-run-name: Bangun OFA - APK Foss Debug (Bisa Install di HP Lain)
+name: Bangun ST12 (Foss Debug)
+run-name: Bangun ST12 - APK Foss Debug (Bisa Install di HP Lain)
 
 on:
   push:
