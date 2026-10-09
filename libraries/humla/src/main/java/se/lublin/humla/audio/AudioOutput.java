@@ -1,18 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * Modif By Ofaid/Ahmad & Rangkabaru ST12 - Monitor Fixed (PCM Output Source + Byte Array)
  */
 
 package se.lublin.humla.audio;
@@ -64,13 +52,13 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
     private final IAudioMixer<float[], short[]> mMixer;
     private ExecutorService mDecodeExecutorService;
     
-    // === TAMBAH: KIRIM DATA SUARA KE MONITOR ===
+    // === CONTEXT UNTUK KIRIM BROADCAST MONITOR ===
     private Context mAppContext;
 
-    // === UBAH KONSTRUKTOR — TERIMA Context, TAMBAH 1 PARAMETER SAJA ===
+    // === KONSTRUKTOR MENERIMA Context ===
     public AudioOutput(AudioOutputListener listener, Context context) {
         mListener = listener;
-        mAppContext = context.getApplicationContext(); // simpan aman
+        mAppContext = context.getApplicationContext();
         mMainHandler = new Handler(Looper.getMainLooper());
         mDecodeExecutorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
         mPacketLock = new ReentrantLock();
@@ -168,11 +156,6 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
 
     /**
      * Fetches audio data from registered audio output users and mixes them into the given buffer.
-     * TODO: add priority speaker support.
-     * @param buffer The buffer to mix output data into.
-     * @param bufferOffset The offset of the
-     * @param bufferSize The size of the buffer.
-     * @return true if the buffer contains audio data.
      */
     private boolean fetchAudio(short[] buffer, int bufferOffset, int bufferSize) {
         Arrays.fill(buffer, bufferOffset, bufferOffset + bufferSize, (short) 0);
@@ -207,17 +190,17 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
 
         mMixer.mix(sources, buffer, bufferOffset, bufferSize);
         
-        // === TAMBAH: KIRIM DATA KE MONITOR — SETELAH CAMPUR, SEBELUM KELUAR ===
+        // ✅ KIRIM DATA PCM MENTAH KE MONITOR SETELAH MIXING
         kirimSuaraKeMonitor(buffer, bufferOffset, bufferSize);
         
         return true;
     }
 
-    // === FUNGSI BARU: HITUNG & KIRIM LEVEL SUARA KE MONITOR ===
+    // ✅ FUNGSI BARU: HITUNG RMS DARI PCM OUTPUT & KIRIM BYTE ARRAY
     private void kirimSuaraKeMonitor(short[] data, int mulai, int panjang) {
         if (mAppContext == null || data == null || panjang <= 0) return;
 
-        // Hitung RMS — sama rumus seperti Neon
+        // Hitung RMS dari buffer PCM mentah hasil mixing
         double jumlah = 0;
         for (int i = mulai; i < mulai + panjang; i++) {
             jumlah += data[i] * data[i];
@@ -225,9 +208,14 @@ public class AudioOutput implements Runnable, AudioOutputSpeech.TalkStateListene
         double rms = Math.sqrt(jumlah / panjang);
         float level = (float) Math.min(rms / 32768.0f, 1.0f);
 
-        // Kirim lewat Broadcast — beda nama dari Neon, TIDAK TABRAK
-        Intent kirim = new Intent("ofaid.ahmad.ptt.LEVEL_MONITOR");
-        kirim.putExtra("level", level);
+        // Konversi ke byte[32] agar kompatibel dengan VisualizerView asli OFAID
+        byte[] monitorBytes = new byte[32];
+        byte val = (byte)(level * 127);
+        Arrays.fill(monitorBytes, val);
+
+        // Kirim dengan ACTION yang sama persis seperti di ChannelListFragment commit 60
+        Intent kirim = new Intent("st12.ACTION_MONITOR_BYTES");
+        kirim.putExtra("bytes", monitorBytes);
         mAppContext.sendBroadcast(kirim);
     }
 
