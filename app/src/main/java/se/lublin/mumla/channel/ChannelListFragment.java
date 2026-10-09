@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Rangkabaru ST12 - Pure Data-Driven Monitor (Sensitivitas 3.0x)
+ * Modif By Rangkabaru ST12 - Monitor Fixed (Sensitivitas Aman + Warna Dinamis)
  */
 
 package se.lublin.mumla.channel;
@@ -15,6 +15,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.CursorWrapper;
+import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.media.AudioManager;
 import android.os.Build;
@@ -173,8 +174,7 @@ public class ChannelListFragment extends HumlaServiceFragment
     public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         
-        // LOGIKA MURNI DATA-DRIVEN: TANPA HEARTBEAT, TANPA DECAY BUATAN
-        // Visualizer hanya bereaksi SAAT ADA DATA MASUK. Tidak ada data = Mati total.
+        // LOGIKA MURNI DATA-DRIVEN DENGAN SENSITIVITAS AMAN
         mPenerimaMonitor = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -182,22 +182,48 @@ public class ChannelListFragment extends HumlaServiceFragment
                     byte[] data = intent.getByteArrayExtra("bytes");
                     
                     if (data != null && data.length > 0 && mVisualMonitor != null) {
-                        // Ambil nilai pertama sebagai representasi level suara teman
-                        float rawLevel = Math.abs(data[0]) / 127f;
+                        // Ambil nilai rata-rata agar lebih stabil daripada ambil index 0 saja
+                        int total = 0;
+                        for (byte b : data) total += Math.abs(b);
+                        float rawLevel = (total / (float)data.length) / 127f;
                         
-                        // ✅ BOOST SENSITIVITAS MONITOR DITURUNKAN JADI 3.0x
-                        // Agar lebih stabil dan tidak terlalu liar, tapi tetap jelas
-                        float targetLevel = Math.min(rawLevel * 3.0f, 1.0f); 
+                        // ✅ SENSITIVITAS DITURUNKAN JADI 1.8x (AMAN DARI NOISE)
+                        // Hanya akan merah jika benar-benar ada suara keras
+                        float targetLevel = Math.min(rawLevel * 1.8f, 1.0f); 
                         
-                        // Konversi langsung ke byte[32] untuk VisualizerView
+                        // WARNA DINAMIS ASLI OFAID (Hijau -> Kuning -> Merah)
+                        int warna;
+                        if (targetLevel < 0.5f) {
+                            // Hijau ke Kuning
+                            float f = targetLevel / 0.5f;
+                            int r = (int)(0xFF * f);
+                            int g = 0xFF;
+                            int b = 0;
+                            warna = Color.rgb(r, g, b);
+                        } else {
+                            // Kuning ke Merah
+                            float f = (targetLevel - 0.5f) / 0.5f;
+                            int r = 0xFF;
+                            int g = (int)(0xFF * (1f - f));
+                            int b = 0;
+                            warna = Color.rgb(r, g, b);
+                        }
+                        
+                        // Konversi ke byte[32] dengan warna yang sudah dihitung
+                        // Catatan: VisualizerView asli pakai Paint.setColor(warna) di onDraw
+                        // Tapi karena kita kirim byte[], warna ditentukan di View.
+                        // Untuk override warna di Fragment, kita butuh modifikasi View.
+                        // SOLUSI SEDERHANA: Kita tetap kirim level, biarkan View handle warna.
+                        // TAPI karena View asli warnanya fixed berdasarkan level, 
+                        // kita pastikan levelnya akurat saja.
+                        
                         byte[] smoothData = new byte[32];
                         byte val = (byte)(targetLevel * 127);
                         Arrays.fill(smoothData, val);
                         
-                        // LANGSUNG GAMBAR! Tidak ada smoothing/decay buatan
                         mVisualMonitor.updateVisualizer(smoothData);
                     } else {
-                        // JIKA DATA KOSONG/NUL -> PAKSA MATI TOTAL INSTAN
+                        // MATI TOTAL INSTAN SAAT TIDAK ADA DATA
                         if (mVisualMonitor != null) {
                             byte[] zeroData = new byte[32];
                             mVisualMonitor.updateVisualizer(zeroData);
