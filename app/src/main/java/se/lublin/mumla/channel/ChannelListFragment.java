@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Rangkabaru ST12 - VisualizerView Asli OFAID Integration
+ * Modif By Rangkabaru ST12 - VisualizerView Asli OFAID Integration + Realtime Decay
  */
 
 package se.lublin.mumla.channel;
@@ -19,6 +19,8 @@ import android.graphics.PorterDuff;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -36,6 +38,8 @@ import androidx.core.view.MenuItemCompat;
 import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
+import java.util.Arrays;
 
 import se.lublin.humla.IHumlaService;
 import se.lublin.humla.IHumlaSession;
@@ -62,6 +66,11 @@ public class ChannelListFragment extends HumlaServiceFragment
     
     // Receiver untuk menerima data byte array dari Service
     private BroadcastReceiver mPenerimaMonitor;
+
+    // === VARIABEL UNTUK REALTIME DECAY (JANTUNG ANIMASI) ===
+    private float mMonitorLevel = 0f;
+    private Handler mMonitorHandler = new Handler(Looper.getMainLooper());
+    private Runnable mMonitorDecayRunnable;
 
     private IHumlaObserver mServiceObserver = new HumlaObserver() {
         @Override
@@ -171,41 +180,51 @@ public class ChannelListFragment extends HumlaServiceFragment
     public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         
-        
-// Penerima Monitor (suara teman) - Versi Halus & Bisa Balik Nol
-// Di dalam onViewCreated, ganti receiver monitor dengan ini:
-mPenerimaMonitor = new BroadcastReceiver() {
-    private float currentLevel = 0f; // Simpan level saat ini
-    
-    @Override
-    public void onReceive(Context context, Intent intent) {
-        if ("st12.ACTION_MONITOR_BYTES".equals(intent.getAction())) {
-            byte[] data = intent.getByteArrayExtra("bytes");
-            if (data != null && mVisualMonitor != null) {
-                // Ambil nilai pertama sebagai representasi level
-                float targetLevel = Math.abs(data[0]) / 127f;
-                
-                // Update level dengan smoothing sederhana
-                // Jika ada data baru, naikkan cepat. Jika tidak, turunkan perlahan
-                if (targetLevel > currentLevel) {
-                    currentLevel = targetLevel; // Naik instan (attack)
-                } else {
-                    currentLevel *= 0.85f; // Turun perlahan (decay)
+        // 1. SETUP RECEIVER HANYA UNTUK MENERIMA DATA ATTACK
+        mPenerimaMonitor = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if ("st12.ACTION_MONITOR_BYTES".equals(intent.getAction())) {
+                    byte[] data = intent.getByteArrayExtra("bytes");
+                    if (data != null && data.length > 0) {
+                        // Ambil nilai pertama sebagai representasi level suara teman
+                        float targetLevel = Math.abs(data[0]) / 127f;
+                        
+                        // Attack Cepat: Langsung naik saat ada suara baru
+                        if (targetLevel > mMonitorLevel) {
+                            mMonitorLevel = targetLevel;
+                        }
+                    }
                 }
-                
-                // Buat ulang byte array 32 elemen berdasarkan level yang sudah di-smooth
-                byte[] smoothData = new byte[32];
-                byte val = (byte)(currentLevel * 127);
-                java.util.Arrays.fill(smoothData, val);
-                
-                mVisualMonitor.updateVisualizer(smoothData);
             }
-        }
-    }
-};
-        
+        };
         requireContext().registerReceiver(mPenerimaMonitor, 
             new IntentFilter("st12.ACTION_MONITOR_BYTES"));
+
+        // 2. JALANKAN HEARTBEAT DECAY MANDIRI SETIAP 30MS
+        mMonitorDecayRunnable = new Runnable() {
+            @Override
+            public void run() {
+                // Turunkan level secara konstan agar gerakan mulus & pasti balik nol
+                if (mMonitorLevel > 0.01f) {
+                    mMonitorLevel *= 0.92f; // Faktor decay (0.92 = turun elegan ~300ms)
+                } else {
+                    mMonitorLevel = 0f;
+                }
+                
+                // Gambar ulang visualizer berdasarkan level terkini
+                if (mVisualMonitor != null) {
+                    byte[] smoothData = new byte[32];
+                    byte val = (byte)(mMonitorLevel * 127);
+                    Arrays.fill(smoothData, val);
+                    mVisualMonitor.updateVisualizer(smoothData);
+                }
+                
+                // Ulangi loop dalam 30ms (~33 FPS)
+                mMonitorHandler.postDelayed(this, 30);
+            }
+        };
+        mMonitorHandler.post(mMonitorDecayRunnable);
     }
 
     @Override
@@ -232,13 +251,23 @@ mPenerimaMonitor = new BroadcastReceiver() {
     }
 
     @Override
-    public void onDestroy() {
+    public void onDestroyView() {
+        super.onDestroyView();
+        
+        // HENTIKAN HEARTBEAT AGAR TIDAK BOROS BATERAI SAAT KELUAR FRAGMENT
+        if (mMonitorHandler != null && mMonitorDecayRunnable != null) {
+            mMonitorHandler.removeCallbacks(mMonitorDecayRunnable);
+        }
+        
         // UNREGISTER RECEIVER AGAR TIDAK LEAK
         if (mPenerimaMonitor != null) {
             try { requireContext().unregisterReceiver(mPenerimaMonitor); } 
             catch (IllegalArgumentException ignored) {}
         }
-        
+    }
+
+    @Override
+    public void onDestroy() {
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(getActivity());
         preferences.unregisterOnSharedPreferenceChangeListener(this);
         super.onDestroy();
