@@ -1,5 +1,5 @@
 name: Bangun ST12 (Foss Debug)
-run-name: Bangun ST12 - APK Foss Debug (Bisa Install di HP Lain)
+run-name: ST12 - APK Foss Debug (Bisa Install di HP Lain)
 
 on:
   push:
@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Ambil kode
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       
       - name: Siapkan Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
