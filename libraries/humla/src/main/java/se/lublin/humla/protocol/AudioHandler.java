@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Ofaid/Ahmad & Rangkabaru ST12 - Monitor Fixed (PCM Output Source)
+ * Modif By Ofaid/Ahmad & Rangkabaru ST12 - AudioHandler Cleaned (Monitor Moved to AudioOutput)
  */
 package se.lublin.humla.protocol;
 
@@ -9,8 +9,6 @@ import android.content.Intent;
 import android.media.AudioManager;
 import android.media.MediaRecorder;
 import android.util.Log;
-
-import java.util.Arrays;
 
 import se.lublin.humla.R;
 import se.lublin.humla.audio.AudioInput;
@@ -339,47 +337,24 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     }
 
     // ==================================================
-    // ✅ PERBAIKAN MONITOR: AMBIL DATA DARI OUTPUT PCM
+    // ✅ MONITOR SUDAH DIHAPUS DARI SINI
+    // Data voice packet tidak dipakai untuk visualizer lagi
     // ==================================================
     @Override
     public void messageVoiceData(byte[] data, HumlaUDPMessageType messageType) {
         synchronized (mOutput) {
             mOutput.queueVoiceData(data, messageType);
-            
-            // === PERBAIKAN KRUSIAL ===
-            // Jangan pakai 'data' (compressed packet) untuk visualizer!
-            // Ambil buffer PCM mentah yang baru saja didecode oleh AudioOutput
-            short[] pcmFrame = mOutput.getLastDecodedFrame(); 
-            
-            if (pcmFrame != null && pcmFrame.length > 0 && mContext != null) {
-                // Hitung RMS dari PCM MENTAH (bukan compressed byte)
-                double sum = 0;
-                for (short s : pcmFrame) {
-                    sum += s * s;
-                }
-                double rms = Math.sqrt(sum / pcmFrame.length);
-                float level = (float) Math.min(rms / 32768.0f, 1.0f);
-                
-                // Konversi ke byte[32] untuk VisualizerView
-                byte[] monitorBytes = new byte[32];
-                byte val = (byte) (level * 127);
-                Arrays.fill(monitorBytes, val);
-
-                Intent intent = new Intent("st12.ACTION_MONITOR_BYTES");
-                intent.putExtra("bytes", monitorBytes);
-                mContext.sendBroadcast(intent);
-            }
         }
+        // Tidak ada lagi logika broadcast monitor di sini!
     }
 
     // ==================================================
-    // ✅ LOGIKA MIC VISUALIZER (BERSIH DARI MONITOR)
+    // ✅ LOGIKA MIC VISUALIZER (BERSIH & TERPISAH)
     // ==================================================
     @Override
     public void onAudioInputReceived(short[] frame, int frameSize) {
         
         // HANYA kirim ke NeonVisualizer (Mic Sendiri)
-        // TIDAK LAGI mengirim ke st12.ACTION_MONITOR_BYTES
         kirimLevelKeVisualMicOnly(frame, frameSize);
 
         // Logika PTT asli OFAID (JANGAN DIUBAH)
