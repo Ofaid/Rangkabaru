@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Rangkabaru ST12 - VisualizerView Asli OFAID + Mic Smoothing Fixed
+ * Modif By Rangkabaru ST12 - VisualizerView Asli OFAID + Mic Asymmetric Smoothing Fixed
  */
 
 package se.lublin.mumla.channel;
@@ -67,7 +67,7 @@ public class ChannelListFragment extends HumlaServiceFragment
     // Receiver untuk menerima data byte array dari Service
     private BroadcastReceiver mPenerimaMonitor;
     
-    // ✅ RECEIVER KHUSUS MIC DENGAN SMOOTHING
+    // ✅ RECEIVER KHUSUS MIC DENGAN ASYMMETRIC SMOOTHING
     private BroadcastReceiver mPenerimaMic;
 
     // === VARIABEL UNTUK REALTIME DECAY MONITOR ===
@@ -76,9 +76,8 @@ public class ChannelListFragment extends HumlaServiceFragment
     private Runnable mMonitorDecayRunnable;
     private static final float SILENCE_THRESHOLD = 0.015f; 
 
-    // ✅ VARIABEL SMOOTHING KHUSUS MIC (Anti Getaran / Jitter)
+    // ✅ STATE LEVEL MIC YANG DIHALUSKAN (Untuk Asymmetric Smoothing)
     private float mSmoothedMicLevel = 0f;
-    private static final float MIC_SMOOTHING_FACTOR = 0.75f; // 0.75 = Halus tapi tetap Realtime
 
     private IHumlaObserver mServiceObserver = new HumlaObserver() {
         @Override public void onDisconnected(HumlaException e) { if (mChannelView != null) mChannelView.setAdapter(null); }
@@ -181,7 +180,7 @@ public class ChannelListFragment extends HumlaServiceFragment
         mMonitorHandler.post(mMonitorDecayRunnable);
 
         // ============================================================
-        // ✅ 3. RECEIVER MIC DENGAN SMOOTHING (ANTI GETARAN / BURAM)
+        // ✅ 3. RECEIVER MIC DENGAN ASYMMETRIC SMOOTHING (ANTI GETARAN TOTAL)
         // ============================================================
         mPenerimaMic = new BroadcastReceiver() {
             @Override
@@ -189,10 +188,17 @@ public class ChannelListFragment extends HumlaServiceFragment
                 if ("ofaid.ahmad.ptt.LEVEL_SUARA".equals(intent.getAction())) {
                     float rawLevel = intent.getFloatExtra("level", 0f);
                     
-                    // SMOOTHING KHUSUS MIC: Redam getaran tanpa menghilangkan realtimeness
-                    // Rumus: level_baru = (raw * faktor) + (level_lama * (1 - faktor))
-                    mSmoothedMicLevel = (rawLevel * MIC_SMOOTHING_FACTOR) + 
-                                        (mSmoothedMicLevel * (1f - MIC_SMOOTHING_FACTOR));
+                    // ASYMMETRIC SMOOTHING:
+                    // Jika suara NAIK lebih tinggi dari level saat ini -> LANGSUNG IKUTI (Attack = 1.0)
+                    // Agar warna hijau/merah muncul INSTAN dan FULL SATURASI
+                    if (rawLevel > mSmoothedMicLevel) {
+                        mSmoothedMicLevel = rawLevel;
+                    } 
+                    // Jika suara TURUN -> TURUNKAN PERLAHAN (Decay = 0.4)
+                    // Agar tidak ada jitter/getaran saat jeda antar suku kata
+                    else {
+                        mSmoothedMicLevel = (rawLevel * 0.4f) + (mSmoothedMicLevel * 0.6f);
+                    }
                     
                     if (mVisualMonitor != null) {
                         // Konversi level yang sudah dihaluskan ke byte[32]
