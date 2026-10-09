@@ -257,8 +257,13 @@ public class ChannelListFragment extends HumlaServiceFragment
     }
 
     private void setupChannelList() throws RemoteException {
-        mChannelListAdapter = new ChannelListAdapter(requireActivity(), getService(), mDatabaseProvider.getDatabase(), getChildFragmentManager(), isShowingPinnedChannels(), mSettings.shouldShowUserCount());
-        mChannelListAdapter.attachRecyclerView(mChannelView);
+        mChannelListAdapter = new ChannelListAdapter(requireActivity(), getService(), 
+                mDatabaseProvider.getDatabase(), getChildFragmentManager(), 
+                isShowingPinnedChannels(), mSettings.shouldShowUserCount());
+        
+        // ✅ PERBAIKAN KRUSIAL: GANTI attachRecyclerView MENJADI setRecyclerView
+        mChannelListAdapter.setRecyclerView(mChannelView);
+        
         mChannelListAdapter.setOnChannelClickListener(this);
         mChannelListAdapter.setOnUserClickListener(this);
         mChannelView.setAdapter(mChannelListAdapter);
