@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Ofaid/Ahmad & Rangkabaru ST12 - AudioHandler + Mic LPF Fixed
+ * Modif By Ofaid/Ahmad & Rangkabaru ST12 - AudioHandler + Mic Sensitivity & LPF Fixed
  */
 package se.lublin.humla.protocol;
 
@@ -72,7 +72,11 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
 
     // ✅ STATE UNTUK LOW-PASS FILTER DI SISI PENGIRIM
     private float mFilteredMicLevel = 0f;
-    private static final float LPF_ALPHA = 0.15f; // 0.15 = filter kuat, noise hilang total
+    private static final float LPF_ALPHA = 0.15f; 
+    
+    // ✅ INPUT GAIN UNTUK MENAIKKAN SENSITIVITAS MIC
+    // 3.5x = optimal untuk mic HP Android agar tidak perlu teriak
+    private static final float MIC_INPUT_GAIN = 3.5f; 
 
     public AudioHandler(Context context, HumlaLogger logger, int audioStream, int audioSource,
                         int sampleRate, int targetBitrate, int targetFramesPerPacket,
@@ -349,7 +353,6 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
         synchronized (mOutput) {
             mOutput.queueVoiceData(data, messageType);
         }
-        // Tidak ada lagi logika broadcast monitor di sini!
     }
 
     // ==================================================
@@ -420,7 +423,7 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
     }
 
     // ==================================================
-    // ✅ FUNGSI KHUSUS MIC DENGAN LOW-PASS FILTER
+    // ✅ FUNGSI KHUSUS MIC DENGAN GAIN + SOFT-CLIP + LPF
     // ==================================================
     private void kirimLevelKeVisualMicOnly(short[] frame, int frameSize) {
         if (frame == null || frameSize <= 0 || mContext == null) return;
@@ -430,15 +433,19 @@ public class AudioHandler extends HumlaNetworkListener implements AudioInput.Aud
             sum += frame[i] * frame[i];
         }
         double rms = Math.sqrt(sum / frameSize);
-        float rawLevel = (float) Math.min(rms / 32768.0f, 1.0f);
+        
+        // 1. TERAPKAN INPUT GAIN SEBELUM PROSES LAINNYA
+        // Mengangkat level dasar agar suara normal bisa capai zona terang
+        float rawLevel = (float) ((rms * MIC_INPUT_GAIN) / 32768.0f);
 
-        // TERAPKAN LOW-PASS FILTER SEBELUM KIRIM
-        // Rumus: filtered = (alpha * raw) + ((1 - alpha) * previous_filtered)
-        // Alpha 0.15 artinya hanya 15% data baru yang masuk, 85% adalah rata-rata sebelumnya
-        // Ini menghilangkan getaran mikro tanpa membuat respons jadi lambat
-        mFilteredMicLevel = (LPF_ALPHA * rawLevel) + ((1f - LPF_ALPHA) * mFilteredMicLevel);
+        // 2. SOFT-CLIPPING (Mencegah sinyal pecah saat gain tinggi)
+        // Rumus x/(1+x) memastikan level tidak pernah hard-clipped di 1.0
+        float processedLevel = rawLevel / (1.0f + rawLevel);
 
-        // HANYA kirim level yang SUDAH DIFILTER ke Visualizer
+        // 3. LOW-PASS FILTER (Haluskan getaran sisa)
+        mFilteredMicLevel = (LPF_ALPHA * processedLevel) + ((1f - LPF_ALPHA) * mFilteredMicLevel);
+
+        // HANYA kirim level yang SUDAH DIPROSES ke Visualizer
         Intent kirimNeon = new Intent("ofaid.ahmad.ptt.LEVEL_SUARA");
         kirimNeon.putExtra("level", mFilteredMicLevel);
         mContext.sendBroadcast(kirimNeon);
