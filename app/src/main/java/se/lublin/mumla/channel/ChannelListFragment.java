@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- * Modif By Rangkabaru ST12 - VisualizerView Asli OFAID Integration + Realtime Decay Fixed
+ * Modif By Rangkabaru ST12 - Pure Data-Driven Monitor (Sensitivitas 3.0x)
  */
 
 package se.lublin.mumla.channel;
@@ -19,8 +19,6 @@ import android.graphics.PorterDuff;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -66,14 +64,6 @@ public class ChannelListFragment extends HumlaServiceFragment
     
     // Receiver untuk menerima data byte array dari Service
     private BroadcastReceiver mPenerimaMonitor;
-
-    // === VARIABEL UNTUK REALTIME DECAY (JANTUNG ANIMASI) ===
-    private float mMonitorLevel = 0f;
-    private Handler mMonitorHandler = new Handler(Looper.getMainLooper());
-    private Runnable mMonitorDecayRunnable;
-    
-    // Threshold agar tidak "berdetak" saat hening total
-    private static final float SILENCE_THRESHOLD = 0.015f; 
 
     private IHumlaObserver mServiceObserver = new HumlaObserver() {
         @Override
@@ -183,23 +173,34 @@ public class ChannelListFragment extends HumlaServiceFragment
     public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         
-        // 1. SETUP RECEIVER HANYA UNTUK MENERIMA DATA ATTACK
+        // LOGIKA MURNI DATA-DRIVEN: TANPA HEARTBEAT, TANPA DECAY BUATAN
+        // Visualizer hanya bereaksi SAAT ADA DATA MASUK. Tidak ada data = Mati total.
         mPenerimaMonitor = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if ("st12.ACTION_MONITOR_BYTES".equals(intent.getAction())) {
                     byte[] data = intent.getByteArrayExtra("bytes");
-                    if (data != null && data.length > 0) {
+                    
+                    if (data != null && data.length > 0 && mVisualMonitor != null) {
                         // Ambil nilai pertama sebagai representasi level suara teman
                         float rawLevel = Math.abs(data[0]) / 127f;
                         
-                        // BOOST SENSITIVITAS MONITOR (3.5x - 5x)
-                        // Data voice dari jaringan biasanya kecil, perlu di-boost agar讲话 keras bisa full bar
-                        float targetLevel = Math.min(rawLevel * 4.0f, 1.0f); 
+                        // ✅ BOOST SENSITIVITAS MONITOR DITURUNKAN JADI 3.0x
+                        // Agar lebih stabil dan tidak terlalu liar, tapi tetap jelas
+                        float targetLevel = Math.min(rawLevel * 3.0f, 1.0f); 
                         
-                        // Attack Cepat: Langsung naik saat ada suara baru
-                        if (targetLevel > mMonitorLevel) {
-                            mMonitorLevel = targetLevel;
+                        // Konversi langsung ke byte[32] untuk VisualizerView
+                        byte[] smoothData = new byte[32];
+                        byte val = (byte)(targetLevel * 127);
+                        Arrays.fill(smoothData, val);
+                        
+                        // LANGSUNG GAMBAR! Tidak ada smoothing/decay buatan
+                        mVisualMonitor.updateVisualizer(smoothData);
+                    } else {
+                        // JIKA DATA KOSONG/NUL -> PAKSA MATI TOTAL INSTAN
+                        if (mVisualMonitor != null) {
+                            byte[] zeroData = new byte[32];
+                            mVisualMonitor.updateVisualizer(zeroData);
                         }
                     }
                 }
@@ -207,33 +208,6 @@ public class ChannelListFragment extends HumlaServiceFragment
         };
         requireContext().registerReceiver(mPenerimaMonitor, 
             new IntentFilter("st12.ACTION_MONITOR_BYTES"));
-
-        // 2. JALANKAN HEARTBEAT DECAY MANDIRI SETIAP 30MS
-        mMonitorDecayRunnable = new Runnable() {
-            @Override
-            public void run() {
-                // LOGIKA DECAY YANG LEBIH PINTAR
-                // Jika level di bawah threshold, paksa jadi 0 (biar gak berdetak sendiri)
-                if (mMonitorLevel <= SILENCE_THRESHOLD) {
-                    mMonitorLevel = 0f;
-                } else {
-                    // Turunkan level secara konstan agar gerakan mulus
-                    mMonitorLevel *= 0.88f; // Faktor decay (0.88 = turun elegan ~250ms)
-                }
-                
-                // Gambar ulang visualizer berdasarkan level terkini
-                if (mVisualMonitor != null) {
-                    byte[] smoothData = new byte[32];
-                    byte val = (byte)(mMonitorLevel * 127);
-                    Arrays.fill(smoothData, val);
-                    mVisualMonitor.updateVisualizer(smoothData);
-                }
-                
-                // Ulangi loop dalam 30ms (~33 FPS)
-                mMonitorHandler.postDelayed(this, 30);
-            }
-        };
-        mMonitorHandler.post(mMonitorDecayRunnable);
     }
 
     @Override
@@ -262,11 +236,6 @@ public class ChannelListFragment extends HumlaServiceFragment
     @Override
     public void onDestroyView() {
         super.onDestroyView();
-        
-        // HENTIKAN HEARTBEAT AGAR TIDAK BOROS BATERAI SAAT KELUAR FRAGMENT
-        if (mMonitorHandler != null && mMonitorDecayRunnable != null) {
-            mMonitorHandler.removeCallbacks(mMonitorDecayRunnable);
-        }
         
         // UNREGISTER RECEIVER AGAR TIDAK LEAK
         if (mPenerimaMonitor != null) {
