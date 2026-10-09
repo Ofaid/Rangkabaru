@@ -1,19 +1,7 @@
 /*
  * Copyright (C) 2014 Andrew Comminos
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+ * Modif By Rangkabaru ST12 - MumlaActivity + Global Crash Logger Integrated
+ */ 
 
 package se.lublin.mumla.app;
 
@@ -105,6 +93,7 @@ import se.lublin.mumla.servers.PublicServerListFragment;
 import se.lublin.mumla.servers.ServerEditFragment;
 import se.lublin.mumla.service.IMumlaService;
 import se.lublin.mumla.service.MumlaService;
+import se.lublin.mumla.util.CrashLogger; // ✅ IMPORT CRASH LOGGER
 import se.lublin.mumla.util.HumlaServiceFragment;
 import se.lublin.mumla.util.HumlaServiceProvider;
 import se.lublin.mumla.util.MumlaTrustStore;
@@ -262,6 +251,9 @@ public class MumlaActivity extends AppCompatActivity implements ListView.OnItemC
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // ✅ PASANG GLOBAL CRASH LOGGER SEBELUM KODE LAINNYA JALAN
+        Thread.setDefaultUncaughtExceptionHandler(new CrashLogger(this));
+
         mSettings = Settings.getInstance(this);
 
         super.onCreate(savedInstanceState);
